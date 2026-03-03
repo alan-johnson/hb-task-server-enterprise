@@ -1,0 +1,534 @@
+# Handsbreadth Task Server — Enterprise Deployment Guide
+
+This guide covers deploying the multi-user task server to a hosted Linux server with Node.js
+installed. It includes installation, configuration, verification, and the full set of components
+needed for a production-grade enterprise deployment.
+
+---
+
+## Table of Contents
+
+1. [Prerequisites](#1-prerequisites)
+2. [Install the Application](#2-install-the-application)
+3. [Configuration](#3-configuration)
+4. [External Service Setup](#4-external-service-setup)
+5. [Start the Server](#5-start-the-server)
+6. [Verification Scripts](#6-verification-scripts)
+7. [Enterprise Architecture Components](#7-enterprise-architecture-components)
+8. [Known Limitations to Resolve Before Production](#8-known-limitations-to-resolve-before-production)
+
+---
+
+## 1. Prerequisites
+
+### Server requirements
+
+- Linux (Ubuntu 22.04 LTS recommended)
+- Node.js 18 or later
+- npm 9 or later
+- A domain name pointed at the server (required for OAuth redirect URIs)
+- Ports 80 and 443 open in the firewall (for HTTPS via reverse proxy)
+
+### Check Node.js version
+
+```bash
+node --version   # must be v18.0.0 or later
+npm --version
+```
+
+### Build tools required by `bcrypt`
+
+The `bcrypt` package compiles a native module. Install the toolchain before running `npm install`:
+
+```bash
+# Ubuntu / Debian
+sudo apt-get update
+sudo apt-get install -y build-essential python3
+
+# Amazon Linux / RHEL
+sudo yum groupinstall "Development Tools"
+sudo yum install -y python3
+```
+
+---
+
+## 2. Install the Application
+
+```bash
+# Copy the application to the server (adjust source path as needed)
+scp -r ./hb-task-server user@your-server:/opt/hb-task-server
+
+# Or clone from your repository
+git clone <repo-url> /opt/hb-task-server
+
+# Enter the application directory
+cd /opt/hb-task-server
+
+# Install production dependencies
+npm install --omit=dev
+
+# Create the data directory (used for user and credential storage)
+mkdir -p ./data
+chmod 700 ./data
+```
+
+> The `data/` directory will hold `users.json` and `user-credentials.json`. See
+> [Section 8](#8-known-limitations-to-resolve-before-production) for replacing this with a
+> proper database before going to production.
+
+---
+
+## 3. Configuration
+
+### 3.1 Create the `.env` file
+
+```bash
+cp .env.example .env
+chmod 600 .env   # restrict read access
+```
+
+Edit `.env` with your values:
+
+```ini
+# Server
+PORT=3000
+
+# Security — generate a strong random secret:
+#   node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+JWT_SECRET=<64-character-random-hex-string>
+
+# Data storage (use an absolute path on a persistent volume)
+DATA_DIR=/opt/hb-task-server/data
+
+# Microsoft Tasks (see Section 4.1)
+MICROSOFT_CLIENT_ID=<azure-app-client-id>
+MICROSOFT_CLIENT_SECRET=<azure-app-client-secret>
+MICROSOFT_TENANT_ID=<azure-tenant-id>
+MICROSOFT_REDIRECT_URI=https://your-domain.com/auth/microsoft/callback
+
+# Google Tasks (see Section 4.2)
+GOOGLE_CLIENT_ID=<google-oauth-client-id>
+GOOGLE_CLIENT_SECRET=<google-oauth-client-secret>
+GOOGLE_REDIRECT_URI=https://your-domain.com/auth/google/callback
+
+# Default provider for new users (microsoft or google — NOT apple on a hosted server)
+DEFAULT_PROVIDER=microsoft
+```
+
+> **Do not set `DEFAULT_PROVIDER=apple`.** The Apple Reminders provider uses AppleScript
+> and only works on macOS. It will fail on any Linux host.
+
+### 3.2 Environment variable reference
+
+| Variable | Required | Description |
+|---|---|---|
+| `PORT` | No | HTTP port the server listens on. Default: `3000`. |
+| `JWT_SECRET` | **Yes** | Secret used to sign JWT tokens. Must be long and random. |
+| `DATA_DIR` | No | Directory for `users.json` and `user-credentials.json`. Default: `./data`. |
+| `MICROSOFT_CLIENT_ID` | If using Microsoft | Azure App Registration client ID. |
+| `MICROSOFT_CLIENT_SECRET` | If using Microsoft | Azure App Registration client secret. |
+| `MICROSOFT_TENANT_ID` | If using Microsoft | Azure AD tenant ID (or `common` for multi-tenant). |
+| `MICROSOFT_REDIRECT_URI` | If using Microsoft | Must match the URI registered in Azure exactly. |
+| `GOOGLE_CLIENT_ID` | If using Google | Google OAuth 2.0 client ID. |
+| `GOOGLE_CLIENT_SECRET` | If using Google | Google OAuth 2.0 client secret. |
+| `GOOGLE_REDIRECT_URI` | If using Google | Must match the URI registered in Google Cloud exactly. |
+| `DEFAULT_PROVIDER` | No | Default task provider for new users. Default: `apple`. Set to `microsoft` or `google`. |
+
+---
+
+## 4. External Service Setup
+
+### 4.1 Microsoft Azure — App Registration
+
+1. Go to [portal.azure.com](https://portal.azure.com) > **Azure Active Directory** > **App registrations** > **New registration**.
+2. Set **Name** to `Handsbreadth Task Server`.
+3. Under **Redirect URI**, choose **Web** and enter:
+   ```
+   https://your-domain.com/auth/microsoft/callback
+   ```
+4. After registration, note the **Application (client) ID** and **Directory (tenant) ID**.
+5. Go to **Certificates & secrets** > **New client secret**. Copy the secret value immediately.
+6. Go to **API permissions** > **Add a permission** > **Microsoft Graph** > **Delegated permissions**.
+   Add: `Tasks.ReadWrite`, `User.Read`. Click **Grant admin consent**.
+
+Set in `.env`:
+```ini
+MICROSOFT_CLIENT_ID=<application-id>
+MICROSOFT_CLIENT_SECRET=<client-secret-value>
+MICROSOFT_TENANT_ID=<directory-tenant-id>
+MICROSOFT_REDIRECT_URI=https://your-domain.com/auth/microsoft/callback
+```
+
+### 4.2 Google Cloud — OAuth 2.0 Credentials
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) > create or select a project.
+2. Navigate to **APIs & Services** > **Library**. Search for **Google Tasks API** and enable it.
+3. Go to **APIs & Services** > **Credentials** > **Create Credentials** > **OAuth client ID**.
+4. Set **Application type** to **Web application**.
+5. Under **Authorized redirect URIs**, add:
+   ```
+   https://your-domain.com/auth/google/callback
+   ```
+6. Download or copy the **Client ID** and **Client Secret**.
+7. If the OAuth consent screen is in "Testing" mode, add user emails under **Test users**, or publish the app.
+
+Set in `.env`:
+```ini
+GOOGLE_CLIENT_ID=<client-id>
+GOOGLE_CLIENT_SECRET=<client-secret>
+GOOGLE_REDIRECT_URI=https://your-domain.com/auth/google/callback
+```
+
+---
+
+## 5. Start the Server
+
+### Direct start (for testing only)
+
+```bash
+node src/hb-task-server-multiuser.js
+```
+
+### With PM2 (recommended for production)
+
+Install PM2 globally:
+
+```bash
+npm install -g pm2
+```
+
+Start the server:
+
+```bash
+pm2 start src/hb-task-server-multiuser.js --name hb-task-server
+```
+
+Configure PM2 to start on system boot:
+
+```bash
+pm2 startup        # follow the printed command to install the startup hook
+pm2 save           # persist the current process list
+```
+
+Useful PM2 commands:
+
+```bash
+pm2 status                    # show running processes
+pm2 logs hb-task-server       # tail logs
+pm2 restart hb-task-server    # restart after config changes
+pm2 stop hb-task-server       # stop the server
+```
+
+---
+
+## 6. Verification Scripts
+
+Run these checks after deployment to confirm the server is operating correctly.
+All commands target `https://your-domain.com`. Replace with `http://localhost:3000`
+for local testing.
+
+### 6.1 Health check
+
+```bash
+curl -s https://your-domain.com/health | jq .
+```
+
+Expected response:
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-03-03T12:00:00.000Z"
+}
+```
+
+A non-200 status or connection error means the server is not running or the reverse proxy
+is misconfigured.
+
+### 6.2 Available providers
+
+```bash
+curl -s https://your-domain.com/api/providers | jq .
+```
+
+Expected response:
+```json
+{
+  "providers": ["apple", "microsoft", "google"],
+  "default": "microsoft"
+}
+```
+
+### 6.3 User registration
+
+```bash
+curl -s -X POST https://your-domain.com/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username": "testuser", "password": "TestPass123!", "email": "test@example.com"}' \
+  | jq .
+```
+
+Expected: `201` response with a `token` field. Save the token for subsequent tests:
+
+```bash
+TOKEN=$(curl -s -X POST https://your-domain.com/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username": "verify_'$(date +%s)'", "password": "TestPass123!", "email": "verify@example.com"}' \
+  | jq -r '.token')
+
+echo "Token: ${TOKEN:0:30}..."
+```
+
+### 6.4 Authenticated profile check
+
+```bash
+curl -s https://your-domain.com/auth/me \
+  -H "Authorization: Bearer $TOKEN" | jq .
+```
+
+Expected: user object with `userId`, `username`, `email`.
+
+### 6.5 Reject unauthenticated requests
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" https://your-domain.com/api/lists
+```
+
+Expected output: `401`. Any other code is a security misconfiguration.
+
+### 6.6 Login and token issuance
+
+```bash
+curl -s -X POST https://your-domain.com/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "testuser", "password": "TestPass123!"}' \
+  | jq .
+```
+
+Expected: `200` with a `token` field.
+
+### 6.7 Full multi-user smoke test
+
+The repository includes a test script that registers two users, verifies isolation, and creates a task. Run it against the live server:
+
+```bash
+# Point the script at the deployed server (edit BASE_URL before running)
+BASE_URL=https://your-domain.com node test-multiuser.js
+```
+
+All steps marked `✅` indicate a healthy deployment. Any `❌` requires investigation.
+
+### 6.8 HTTPS and redirect URI validation
+
+```bash
+# Confirm TLS is valid
+curl -sv https://your-domain.com/health 2>&1 | grep -E "SSL|TLS|certificate"
+
+# Confirm HTTP redirects to HTTPS (if configured in reverse proxy)
+curl -sv -o /dev/null http://your-domain.com/health 2>&1 | grep "Location:"
+```
+
+---
+
+## 7. Enterprise Architecture Components
+
+The application as shipped is a Node.js HTTP server. A production enterprise deployment requires
+the following additional layers.
+
+### 7.1 Reverse proxy with TLS — nginx + Certbot
+
+Install nginx and obtain a Let's Encrypt certificate:
+
+```bash
+sudo apt-get install -y nginx certbot python3-certbot-nginx
+sudo certbot --nginx -d your-domain.com
+```
+
+Example `/etc/nginx/sites-available/hb-task-server`:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name your-domain.com;
+
+    ssl_certificate     /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+
+    # Proxy all traffic to the Node.js server
+    location / {
+        proxy_pass         http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+}
+
+# Redirect HTTP to HTTPS
+server {
+    listen 80;
+    server_name your-domain.com;
+    return 301 https://$host$request_uri;
+}
+```
+
+Enable and reload:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/hb-task-server /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+TLS certificate auto-renewal is installed by Certbot via a cron job or systemd timer.
+Verify it with:
+
+```bash
+sudo certbot renew --dry-run
+```
+
+### 7.2 Process manager — PM2
+
+Covered in [Section 5](#5-start-the-server). PM2 provides:
+
+- Automatic restart on crash
+- Startup on server reboot
+- Log management (`pm2 logs`, `pm2 logrotate`)
+- Cluster mode for multi-core scaling (requires stateless session storage first — see 7.3)
+
+### 7.3 Database — replace file-based storage
+
+**Current state:** User accounts and OAuth credentials are stored in two JSON files
+(`users.json`, `user-credentials.json`) loaded entirely into memory. This has two
+critical problems for enterprise use:
+
+1. **OAuth tokens are stored in plaintext.** Access tokens and refresh tokens are sensitive
+   credentials. They must be encrypted at rest.
+2. **File storage does not support multiple Node.js processes.** Horizontal scaling or
+   a cluster restart will cause data inconsistency.
+
+**Required change:** Replace `src/auth/userService.js` with a database-backed
+implementation. Recommended options:
+
+| Option | Use case |
+|---|---|
+| **PostgreSQL** | Relational data, strong consistency, best for most enterprise deployments |
+| **MongoDB** | Document store, easier schema flexibility |
+| **SQLite** | Single-server deployments with low write volume; zero setup |
+
+At minimum, the schema needs two tables/collections:
+- `users` — userId, username, email, passwordHash, defaultProvider, createdAt
+- `user_credentials` — userId, provider, accessTokenEncrypted, refreshTokenEncrypted, updatedAt
+
+Encrypt `accessTokenEncrypted` and `refreshTokenEncrypted` using AES-256-GCM with a
+key stored in a secrets manager (see 7.4), not in the database itself.
+
+### 7.4 Secrets management
+
+Do not store `JWT_SECRET`, `MICROSOFT_CLIENT_SECRET`, or `GOOGLE_CLIENT_SECRET` in a `.env`
+file on the server filesystem. Use a secrets manager:
+
+| Platform | Service |
+|---|---|
+| AWS | AWS Secrets Manager or Parameter Store |
+| GCP | Secret Manager |
+| Azure | Azure Key Vault |
+| Self-hosted | HashiCorp Vault |
+
+Inject secrets as environment variables at runtime via the deployment system (systemd unit,
+Docker, Kubernetes), not stored in files readable on disk.
+
+### 7.5 Rate limiting
+
+The server has no rate limiting. Add `express-rate-limit` to the application:
+
+```bash
+npm install express-rate-limit
+```
+
+Apply at minimum to authentication routes to prevent brute-force attacks:
+- `POST /auth/login` — limit to ~10 requests per minute per IP
+- `POST /auth/register` — limit to ~5 per hour per IP
+
+### 7.6 Structured logging
+
+`console.log` is not suitable for production. Replace with a structured logger:
+
+```bash
+npm install pino pino-pretty
+```
+
+Output logs as JSON for ingestion by a log aggregation system (Datadog, CloudWatch,
+Elastic/Kibana, Loki). At minimum, log:
+- All authentication events (login, register, failed attempts) with userId and IP
+- All 4xx/5xx responses
+- Provider credential storage and removal events
+
+### 7.7 OAuth token refresh
+
+**Current state:** Microsoft access tokens expire after ~1 hour. Google access tokens
+expire after 1 hour. The server stores refresh tokens but never uses them to obtain new
+access tokens. Users will get errors after their token expires.
+
+**Required change:** Add token refresh logic to each provider:
+- **Google:** Call `oauth2Client.refreshAccessToken()` when a request fails with 401,
+  then retry and update the stored `accessToken`.
+- **Microsoft:** Use `@azure/identity` `OnBehalfOfCredential` or re-initialize with a
+  refreshed token.
+
+### 7.8 Firewall
+
+The Node.js server should not be directly reachable on port 3000 from the internet.
+Only nginx (or your reverse proxy) should be publicly accessible.
+
+```bash
+sudo ufw allow 22/tcp    # SSH
+sudo ufw allow 80/tcp    # HTTP (redirects to HTTPS)
+sudo ufw allow 443/tcp   # HTTPS
+sudo ufw deny 3000/tcp   # block direct Node.js access
+sudo ufw enable
+```
+
+### 7.9 Monitoring and alerting
+
+| Concern | Tool options |
+|---|---|
+| Uptime / health check | UptimeRobot, Pingdom, AWS Route 53 health checks |
+| Application metrics | PM2 metrics, Datadog APM, New Relic |
+| Error tracking | Sentry |
+| Log aggregation | Datadog, CloudWatch Logs, Grafana Loki |
+
+At minimum, configure an external monitor to ping `GET /health` every 60 seconds and
+alert on failure.
+
+### 7.10 Backup
+
+If using file-based storage (development), back up the `data/` directory:
+
+```bash
+# Example: daily backup to S3
+aws s3 cp /opt/hb-task-server/data/users.json s3://your-bucket/backups/users-$(date +%F).json
+aws s3 cp /opt/hb-task-server/data/user-credentials.json s3://your-bucket/backups/credentials-$(date +%F).json
+```
+
+If using a database (production), use the database's native backup tools (pg_dump for
+PostgreSQL, mongodump for MongoDB).
+
+---
+
+## 8. Known Limitations to Resolve Before Production
+
+These are architectural gaps in the current codebase that must be addressed for a
+production enterprise deployment.
+
+| # | Limitation | Impact | Resolution |
+|---|---|---|---|
+| 1 | OAuth tokens stored in plaintext JSON | Critical — credential exposure if file is read | Encrypt tokens at rest; use a database with column-level encryption |
+| 2 | No token refresh | High — users get errors after ~1 hour | Implement refresh logic in Google and Microsoft providers |
+| 3 | File-based storage is single-process | High — cannot scale horizontally | Replace with PostgreSQL or MongoDB |
+| 4 | In-memory user Map | High — data lost on crash before write completes | Database handles this automatically |
+| 5 | No rate limiting | High — brute-force attack on `/auth/login` | Add `express-rate-limit` |
+| 6 | No HTTPS in application | Medium — handled by reverse proxy, but must be enforced | Configure nginx to reject non-HTTPS; set `trust proxy` in Express |
+| 7 | `DEFAULT_PROVIDER=apple` default | Medium — Apple provider fails on Linux | Set to `microsoft` or `google` in `.env` |
+| 8 | Google OAuth callback state is unsigned base64 | Medium — CSRF risk | Sign the state parameter with a short-lived HMAC or use a server-side session |
+| 9 | No password reset flow | Low — operational gap | Implement email-based reset |
+| 10 | 7-day JWT expiry with no revocation | Low — stolen tokens valid for 7 days | Reduce expiry or implement a token revocation list |
