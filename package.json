@@ -1,5 +1,5 @@
 {
-  "name": "hb-task-server-enterprise",
+  "name": "hb-task-server",
   "version": "0.1.0",
   "description": "Handsbreadth Multi-User Unified Task Server — REST API for Microsoft Tasks and Google Tasks",
   "main": "src/server.js",
