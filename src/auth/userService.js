@@ -1,64 +1,66 @@
 const bcrypt = require('bcrypt');
 const fs = require('fs').promises;
 const path = require('path');
+const { pool, encrypt, decrypt } = require('../db/db');
 
 class UserService {
-  constructor(dataDir = './data') {
-    this.dataDir = dataDir;
-    this.usersFile = path.join(dataDir, 'users.json');
-    this.credentialsFile = path.join(dataDir, 'user-credentials.json');
-    this.users = new Map();
-    this.userCredentials = new Map(); // userId -> { provider -> credentials }
+  // server.js passes (process.env.DATA_DIR || './data') — accepted but ignored.
+  constructor(_ignoredDataDir) {
+    // In-memory caches populated by initialize() and kept in sync on every write.
+    // This allows getUser() and getCredentials() to remain synchronous.
+    this.users = new Map();           // username -> user object
+    this.userCredentials = new Map(); // userId   -> { provider -> credentials }
   }
 
-  // Initialize the service
   async initialize() {
     try {
-      await fs.mkdir(this.dataDir, { recursive: true });
-      await this.loadUsers();
-      await this.loadCredentials();
+      await this._createTablesIfNeeded();
+      await this._loadCache();
+      console.log('UserService: connected to PostgreSQL, cache loaded');
     } catch (error) {
       console.error('Failed to initialize UserService:', error.message);
+      throw error;
     }
   }
 
-  // Load users from file
-  async loadUsers() {
-    try {
-      const data = await fs.readFile(this.usersFile, 'utf-8');
-      const users = JSON.parse(data);
-      this.users = new Map(Object.entries(users));
-    } catch (error) {
-      // File doesn't exist yet, that's ok
-      this.users = new Map();
+  async _createTablesIfNeeded() {
+    const schemaPath = path.join(__dirname, '../db/schema.sql');
+    const sql = await fs.readFile(schemaPath, 'utf-8');
+    await pool.query(sql);
+  }
+
+  async _loadCache() {
+    const usersResult = await pool.query(
+      'SELECT user_id, username, email, password_hash, created_at, default_provider FROM users'
+    );
+    this.users = new Map();
+    for (const row of usersResult.rows) {
+      this.users.set(row.username, {
+        userId:          row.user_id,
+        username:        row.username,
+        email:           row.email,
+        passwordHash:    row.password_hash,
+        createdAt:       row.created_at.toISOString(),
+        defaultProvider: row.default_provider,
+      });
+    }
+
+    const credsResult = await pool.query(
+      'SELECT user_id, provider, access_token, refresh_token, updated_at FROM user_credentials'
+    );
+    this.userCredentials = new Map();
+    for (const row of credsResult.rows) {
+      if (!this.userCredentials.has(row.user_id)) {
+        this.userCredentials.set(row.user_id, {});
+      }
+      this.userCredentials.get(row.user_id)[row.provider] = {
+        accessToken:  decrypt(row.access_token),
+        refreshToken: decrypt(row.refresh_token),
+        updatedAt:    row.updated_at.toISOString(),
+      };
     }
   }
 
-  // Save users to file
-  async saveUsers() {
-    const usersObj = Object.fromEntries(this.users);
-    await fs.writeFile(this.usersFile, JSON.stringify(usersObj, null, 2));
-  }
-
-  // Load user credentials from file
-  async loadCredentials() {
-    try {
-      const data = await fs.readFile(this.credentialsFile, 'utf-8');
-      const credentials = JSON.parse(data);
-      this.userCredentials = new Map(Object.entries(credentials));
-    } catch (error) {
-      // File doesn't exist yet, that's ok
-      this.userCredentials = new Map();
-    }
-  }
-
-  // Save user credentials to file
-  async saveCredentials() {
-    const credsObj = Object.fromEntries(this.userCredentials);
-    await fs.writeFile(this.credentialsFile, JSON.stringify(credsObj, null, 2));
-  }
-
-  // Register a new user
   async register(username, password, email) {
     if (this.users.has(username)) {
       throw new Error('Username already exists');
@@ -66,105 +68,116 @@ class UserService {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const userId = Date.now().toString() + Math.random().toString(36).substring(2);
+    const createdAt = new Date().toISOString();
+
+    try {
+      await pool.query(
+        `INSERT INTO users (user_id, username, email, password_hash, created_at, default_provider)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [userId, username, email || null, hashedPassword, createdAt, 'apple']
+      );
+    } catch (err) {
+      if (err.code === '23505') throw new Error('Username already exists');
+      throw err;
+    }
 
     const user = {
       userId,
       username,
-      email,
-      passwordHash: hashedPassword,
-      createdAt: new Date().toISOString(),
-      defaultProvider: 'apple'
+      email:           email || null,
+      passwordHash:    hashedPassword,
+      createdAt,
+      defaultProvider: 'apple',
     };
-
     this.users.set(username, user);
     this.userCredentials.set(userId, {});
-    
-    await this.saveUsers();
-    await this.saveCredentials();
 
-    return {
-      userId: user.userId,
-      username: user.username,
-      email: user.email,
-      createdAt: user.createdAt
-    };
+    return { userId, username, email: user.email, createdAt };
   }
 
-  // Authenticate a user
   async authenticate(username, password) {
     const user = this.users.get(username);
-    
-    if (!user) {
-      throw new Error('Invalid username or password');
-    }
+    if (!user) throw new Error('Invalid username or password');
 
     const isValid = await bcrypt.compare(password, user.passwordHash);
-    
-    if (!isValid) {
-      throw new Error('Invalid username or password');
-    }
+    if (!isValid) throw new Error('Invalid username or password');
 
-    return {
-      userId: user.userId,
-      username: user.username,
-      email: user.email
-    };
+    return { userId: user.userId, username: user.username, email: user.email };
   }
 
-  // Get user by ID
   getUser(userId) {
     for (const user of this.users.values()) {
       if (user.userId === userId) {
         return {
-          userId: user.userId,
-          username: user.username,
-          email: user.email,
-          defaultProvider: user.defaultProvider
+          userId:          user.userId,
+          username:        user.username,
+          email:           user.email,
+          defaultProvider: user.defaultProvider,
         };
       }
     }
     return null;
   }
 
-  // Store provider credentials for a user
   async storeCredentials(userId, provider, credentials) {
-    let userCreds = this.userCredentials.get(userId) || {};
-    userCreds[provider] = {
-      ...credentials,
-      updatedAt: new Date().toISOString()
+    const updatedAt = new Date().toISOString();
+    const encAccessToken  = encrypt(credentials.accessToken  || null);
+    const encRefreshToken = encrypt(credentials.refreshToken || null);
+
+    await pool.query(
+      `INSERT INTO user_credentials (user_id, provider, access_token, refresh_token, updated_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id, provider) DO UPDATE SET
+         access_token  = EXCLUDED.access_token,
+         refresh_token = EXCLUDED.refresh_token,
+         updated_at    = EXCLUDED.updated_at`,
+      [userId, provider, encAccessToken, encRefreshToken, updatedAt]
+    );
+
+    if (!this.userCredentials.has(userId)) {
+      this.userCredentials.set(userId, {});
+    }
+    this.userCredentials.get(userId)[provider] = {
+      accessToken:  credentials.accessToken  || null,
+      refreshToken: credentials.refreshToken || null,
+      updatedAt,
     };
-    this.userCredentials.set(userId, userCreds);
-    await this.saveCredentials();
   }
 
-  // Get provider credentials for a user
   getCredentials(userId, provider) {
     const userCreds = this.userCredentials.get(userId);
     if (!userCreds) return null;
     return userCreds[provider] || null;
   }
 
-  // Remove provider credentials for a user
   async removeCredentials(userId, provider) {
-    const userCreds = this.userCredentials.get(userId);
-    if (userCreds && userCreds[provider]) {
-      delete userCreds[provider];
-      this.userCredentials.set(userId, userCreds);
-      await this.saveCredentials();
+    const result = await pool.query(
+      'DELETE FROM user_credentials WHERE user_id = $1 AND provider = $2',
+      [userId, provider]
+    );
+
+    if (result.rowCount > 0) {
+      const userCreds = this.userCredentials.get(userId);
+      if (userCreds) delete userCreds[provider];
       return true;
     }
     return false;
   }
 
-  // Update user's default provider
   async updateDefaultProvider(userId, provider) {
-    for (const [username, user] of this.users.entries()) {
-      if (user.userId === userId) {
-        user.defaultProvider = provider;
-        this.users.set(username, user);
-        await this.saveUsers();
-        return true;
+    const result = await pool.query(
+      'UPDATE users SET default_provider = $2 WHERE user_id = $1',
+      [userId, provider]
+    );
+
+    if (result.rowCount > 0) {
+      for (const user of this.users.values()) {
+        if (user.userId === userId) {
+          user.defaultProvider = provider;
+          break;
+        }
       }
+      return true;
     }
     return false;
   }

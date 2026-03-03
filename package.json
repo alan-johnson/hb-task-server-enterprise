@@ -1,7 +1,7 @@
 {
-  "name": "hb-task-server",
-  "version": "2.0.0",
-  "description": "Handsbreadth Multi-User Task Server — REST API for Microsoft Tasks and Google Tasks",
+  "name": "hb-task-server-enterprise",
+  "version": "0.1.0",
+  "description": "Handsbreadth Multi-User Unified Task Server — REST API for Microsoft Tasks and Google Tasks",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -16,7 +16,8 @@
     "googleapis": "^126.0.1",
     "body-parser": "^1.20.2",
     "jsonwebtoken": "^9.0.2",
-    "bcrypt": "^5.1.1"
+    "bcrypt": "^5.1.1",
+    "pg": "^8.12.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
