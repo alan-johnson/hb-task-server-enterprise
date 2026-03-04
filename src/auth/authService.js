@@ -14,7 +14,7 @@ class AuthService {
         createdAt: new Date().toISOString()
       },
       this.jwtSecret,
-      { expiresIn: '7d' }
+      { expiresIn: '30d' }
     );
   }
 

@@ -167,6 +167,12 @@ app.get('/auth/me', authService.requireAuth(), async (req, res) => {
   res.json({ user });
 });
 
+// Refresh JWT — issues a new 30-day token from a still-valid existing token
+app.post('/auth/refresh', authService.requireAuth(), (req, res) => {
+  const token = authService.generateToken(req.user.userId, req.user.username);
+  res.json({ token });
+});
+
 // Get connected provider status for the current user
 app.get('/auth/providers/status', authService.requireAuth(), async (req, res) => {
   const status = { apple: true }; // always available on macOS
@@ -357,7 +363,7 @@ app.get('/api/lists', authService.requireAuth(), async (req, res) => {
   try {
     const { provider, providerName } = getProviderForUser(req);
     await initializeProvider(provider, providerName, req.user.userId);
-    
+
     const lists = await provider.getLists();
     res.json({
       provider: providerName,
