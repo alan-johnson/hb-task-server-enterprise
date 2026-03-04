@@ -17,6 +17,7 @@ class MicrosoftTasksProvider {
       redirect_uri:  this.config.redirectUri,
       scope:         'Tasks.ReadWrite offline_access User.Read',
       response_mode: 'query',
+      prompt:        'select_account', // always show account picker so the correct account can be chosen
     });
     return `https://login.microsoftonline.com/${this.config.tenantId}/oauth2/v2.0/authorize?${params}`;
   }

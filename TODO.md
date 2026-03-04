@@ -50,3 +50,15 @@ Before publishing, fill in the highlighted placeholders in both files:
 Microsoft: Azure Portal → your app registration → Branding & properties → Privacy statement URL + Terms of service URL
 Google: Google Cloud Console → OAuth consent screen → Privacy Policy URL + Terms of Service URL
 These documents are a solid starting point but are not a substitute for legal advice. For a commercial subscription service, have a lawyer review them before publishing.
+
+## Testing
+
+### get all lists
+
+```
+fetch('/api/lists?provider=microsoft', {
+  headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+})
+.then(r => r.json())
+.then(data => data.lists.forEach(l => console.log(l.id, l.name)))
+```

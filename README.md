@@ -229,12 +229,59 @@ Authorization: Bearer <token>
 
 Obtain a token from `POST /auth/register` or `POST /auth/login`.
 
+### Token lifetime and refresh
+
+Tokens are valid for **30 days**. When a token expires the server returns `401 Unauthorized`.
+
+#### Web clients (browser)
+The dashboard detects a `401` and redirects to the login page automatically. The user logs in and a new 30-day token is issued.
+
+#### API clients (mobile apps, smartwatches, integrations)
+
+**Proactive refresh (recommended):** Before a token expires, exchange it for a new one without user interaction:
+
+```http
+POST /auth/refresh
+Authorization: Bearer <current-token>
+```
+
+Response:
+```json
+{ "token": "<new-30-day-token>" }
+```
+
+Store the new token and discard the old one. A good strategy is to call `/auth/refresh` on every app launch if the stored token is older than 15 days — this ensures active users never see an expiry prompt.
+
+**Reactive re-login:** If a request returns `401` (token expired or missing), prompt the user to log in again:
+
+```http
+POST /auth/login
+Content-Type: application/json
+
+{ "username": "<username>", "password": "<password>" }
+```
+
+Store the returned `token` securely (iOS Keychain, Android Keystore, or the watch's equivalent secure storage). Never store credentials in plain text or in unprotected app storage.
+
+**Recommended token management flow for API clients:**
+
+```
+App launch
+  └─ Load stored token
+      ├─ No token → show login screen
+      └─ Token exists
+          ├─ Token age > 15 days → POST /auth/refresh → store new token
+          └─ Make API requests
+              └─ Response 401 → token expired → show login screen
+```
+
 ### Auth endpoints
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `POST` | `/auth/register` | No | Register a new user |
 | `POST` | `/auth/login` | No | Log in, receive a token |
+| `POST` | `/auth/refresh` | Yes | Issue a new token from a valid existing token |
 | `GET` | `/auth/me` | Yes | Get current user info |
 | `GET` | `/auth/microsoft/url` | Yes | Get Microsoft OAuth URL |
 | `GET` | `/auth/microsoft/callback` | — | Microsoft OAuth callback |
