@@ -13,17 +13,18 @@ function getClient() {
 
 async function get(key) {
   const c = getClient();
-  return c ? c.get(key) : null;
+  if (!c) return null;
+  return c.get(key).catch((err) => { console.warn('Redis get error (non-fatal):', err.message); return null; });
 }
 
 async function set(key, value) {
   const c = getClient();
-  if (c) await c.set(key, value);
+  if (c) await c.set(key, value).catch((err) => console.warn('Redis set error (non-fatal):', err.message));
 }
 
 async function del(...keys) {
   const c = getClient();
-  if (c && keys.length) await c.del(...keys);
+  if (c && keys.length) await c.del(...keys).catch((err) => console.warn('Redis del error (non-fatal):', err.message));
 }
 
 module.exports = { get, set, del };

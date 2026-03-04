@@ -9,8 +9,41 @@ class MicrosoftTasksProvider {
     this.accessToken = null;
   }
 
+  // Get OAuth authorization URL
+  getAuthUrl() {
+    const params = new URLSearchParams({
+      client_id:     this.config.clientId,
+      response_type: 'code',
+      redirect_uri:  this.config.redirectUri,
+      scope:         'Tasks.ReadWrite offline_access User.Read',
+      response_mode: 'query',
+    });
+    return `https://login.microsoftonline.com/${this.config.tenantId}/oauth2/v2.0/authorize?${params}`;
+  }
+
+  // Exchange authorization code for tokens
+  async getTokensFromCode(code) {
+    const body = new URLSearchParams({
+      client_id:     this.config.clientId,
+      client_secret: this.config.clientSecret,
+      code,
+      redirect_uri:  this.config.redirectUri,
+      grant_type:    'authorization_code',
+    });
+    const response = await fetch(
+      `https://login.microsoftonline.com/${this.config.tenantId}/oauth2/v2.0/token`,
+      { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body }
+    );
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error_description || 'Token exchange failed');
+    }
+    return response.json(); // { access_token, refresh_token, expires_in, ... }
+  }
+
   // Initialize Graph client
-  async initialize(accessToken) {
+  async initialize(accessToken, refreshToken) {
+    this.refreshToken = refreshToken || null;
     if (accessToken) {
       this.accessToken = accessToken;
       this.client = Client.init({
