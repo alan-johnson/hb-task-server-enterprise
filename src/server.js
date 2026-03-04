@@ -74,7 +74,7 @@ async function initializeProvider(provider, providerName, userId) {
   }
   
   // Get user's stored credentials for this provider
-  const credentials = userService.getCredentials(userId, providerName);
+  const credentials = await userService.getCredentials(userId, providerName);
   
   if (!credentials) {
     throw new Error(`${providerName} credentials not found. Please authenticate first.`);
@@ -153,8 +153,8 @@ app.post('/auth/login', async (req, res) => {
 });
 
 // Get current user info
-app.get('/auth/me', authService.requireAuth(), (req, res) => {
-  const user = userService.getUser(req.user.userId);
+app.get('/auth/me', authService.requireAuth(), async (req, res) => {
+  const user = await userService.getUser(req.user.userId);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
