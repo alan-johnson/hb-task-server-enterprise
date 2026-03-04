@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — Handsbreadth Unified Task Server</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f7; color: #1d1d1f; line-height: 1.7; }
+    .container { max-width: 760px; margin: 0 auto; padding: 3rem 1.5rem; }
+    h1 { font-size: 2rem; font-weight: 700; margin-bottom: .5rem; }
+    .meta { color: #666; font-size: .9rem; margin-bottom: 2.5rem; }
+    h2 { font-size: 1.2rem; font-weight: 600; margin: 2rem 0 .5rem; }
+    p, li { font-size: .975rem; color: #333; }
+    ul { padding-left: 1.4rem; margin: .5rem 0; }
+    li { margin-bottom: .3rem; }
+    a { color: #0071e3; }
+    .highlight { background: #fff8e1; border-left: 3px solid #f9a825; padding: .75rem 1rem; border-radius: 0 8px 8px 0; margin: 1rem 0; font-size: .95rem; }
+    .placeholder { background: #ffe0e0; padding: 0 4px; border-radius: 3px; font-weight: 600; }
+    footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #d2d2d7; font-size: .85rem; color: #666; }
+    footer a { color: #0071e3; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <h1>Privacy Policy</h1>
+  <p class="meta">
+    Effective date: <span class="placeholder">[EFFECTIVE DATE]</span> &nbsp;|&nbsp;
+    Last updated: <span class="placeholder">[LAST UPDATED DATE]</span>
+  </p>
+
+  <p>This Privacy Policy describes how <strong>Handsbreadth</strong> ("<strong>we</strong>", "<strong>us</strong>", or "<strong>our</strong>") collects, uses, and protects your information when you use the <strong>Unified Task Server</strong> service (the "<strong>Service</strong>") at <span class="placeholder">[YOUR DOMAIN]</span>.</p>
+
+  <p>By using the Service you agree to the collection and use of information as described in this policy.</p>
+
+  <!-- ── 1 ── -->
+  <h2>1. Information We Collect</h2>
+
+  <p><strong>Account information.</strong> When you register, we collect:</p>
+  <ul>
+    <li>Username</li>
+    <li>Email address (optional)</li>
+    <li>Password (stored as a bcrypt hash — we never store your plain-text password)</li>
+  </ul>
+
+  <p><strong>OAuth tokens.</strong> When you connect a third-party task provider (Microsoft Tasks or Google Tasks), we store the OAuth access token and refresh token issued by that provider. These tokens are encrypted at rest using AES-256-GCM encryption and are used solely to fulfill requests you make to the Service.</p>
+
+  <p><strong>Task data.</strong> When you request your tasks, lists, or other task-related data, we retrieve it from the connected provider on your behalf and return it to you. We do <strong>not</strong> persistently store your task content, list names, or any task metadata in our databases.</p>
+
+  <p><strong>Usage data.</strong> We may log standard server access information (IP address, request path, timestamp) for security monitoring and troubleshooting. These logs are not shared with third parties and are retained for a maximum of <span class="placeholder">[LOG RETENTION PERIOD, e.g. 30 days]</span>.</p>
+
+  <!-- ── 2 ── -->
+  <h2>2. How We Use Your Information</h2>
+
+  <ul>
+    <li>To authenticate you and maintain your session</li>
+    <li>To connect to your Microsoft or Google account on your behalf and retrieve your tasks</li>
+    <li>To respond to your requests and provide the Service</li>
+    <li>To detect and prevent security incidents</li>
+    <li>To comply with legal obligations</li>
+  </ul>
+
+  <p>We do <strong>not</strong> sell, rent, or share your personal information with third parties for advertising or marketing purposes.</p>
+
+  <!-- ── 3 ── -->
+  <h2>3. Google API Services — Limited Use Disclosure</h2>
+
+  <div class="highlight">
+    Handsbreadth's use of information received from Google APIs adheres to the
+    <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">
+      Google API Services User Data Policy</a>, including the Limited Use requirements.
+  </div>
+
+  <p>Specifically:</p>
+  <ul>
+    <li>We access your Google Tasks data <strong>only</strong> to display, create, and complete tasks at your explicit request.</li>
+    <li>We do not use your Google data for any purpose other than providing the task management Service to you.</li>
+    <li>We do not transfer your Google data to third parties except as necessary to provide the Service (e.g., returning data to your authenticated session).</li>
+    <li>We do not use your Google data for serving advertisements or for any other commercial purpose unrelated to improving the task management functionality.</li>
+    <li>We do not allow humans to read your Google data unless you have given us explicit permission, or it is necessary for security purposes such as investigating abuse.</li>
+  </ul>
+
+  <!-- ── 4 ── -->
+  <h2>4. Microsoft Graph API Data</h2>
+
+  <p>When you connect Microsoft Tasks, we request the following Microsoft Graph API permissions:</p>
+  <ul>
+    <li><strong>Tasks.ReadWrite</strong> — to read and write your Microsoft To Do tasks</li>
+    <li><strong>offline_access</strong> — to obtain a refresh token so you do not need to re-authorize repeatedly</li>
+    <li><strong>User.Read</strong> — to identify your Microsoft account for API calls</li>
+  </ul>
+
+  <p>We use this access solely to fulfill your task management requests. We do not share Microsoft account data with any third party.</p>
+
+  <!-- ── 5 ── -->
+  <h2>5. Apple Reminders</h2>
+
+  <p>Apple Reminders integration operates locally via macOS system APIs. No Apple account credentials or Reminders data are transmitted to or stored on our servers.</p>
+
+  <!-- ── 6 ── -->
+  <h2>6. Data Storage and Security</h2>
+
+  <ul>
+    <li>Account data is stored in a PostgreSQL database hosted at <span class="placeholder">[HOSTING PROVIDER / REGION]</span>.</li>
+    <li>OAuth tokens are encrypted at rest using AES-256-GCM before being written to the database.</li>
+    <li>Passwords are hashed using bcrypt (cost factor 10) and are never stored in recoverable form.</li>
+    <li>All connections to the Service are encrypted in transit using TLS (HTTPS).</li>
+    <li>We restrict access to personal data to authorized personnel only.</li>
+  </ul>
+
+  <p>No method of transmission or storage is 100% secure. While we use commercially reasonable measures to protect your data, we cannot guarantee absolute security.</p>
+
+  <!-- ── 7 ── -->
+  <h2>7. Data Retention and Deletion</h2>
+
+  <p>We retain your account information and stored OAuth tokens for as long as your account is active or as needed to provide the Service. If you disconnect a provider (via the dashboard), the associated OAuth tokens are permanently deleted from our systems. If you close your account, all personal data associated with your account will be deleted within <span class="placeholder">[e.g. 30 days]</span>.</p>
+
+  <p>To request account deletion, contact us at <a href="mailto:[YOUR EMAIL]"><span class="placeholder">[YOUR EMAIL]</span></a>.</p>
+
+  <!-- ── 8 ── -->
+  <h2>8. Your Rights</h2>
+
+  <p>Depending on your jurisdiction, you may have the right to:</p>
+  <ul>
+    <li>Access the personal data we hold about you</li>
+    <li>Correct inaccurate personal data</li>
+    <li>Request deletion of your personal data</li>
+    <li>Object to or restrict processing of your personal data</li>
+    <li>Data portability (receive your data in a structured format)</li>
+    <li>Withdraw consent at any time (without affecting prior lawful processing)</li>
+  </ul>
+
+  <p>To exercise any of these rights, contact us at <a href="mailto:[YOUR EMAIL]"><span class="placeholder">[YOUR EMAIL]</span></a>.</p>
+
+  <!-- ── 9 ── -->
+  <h2>9. Cookies and Local Storage</h2>
+
+  <p>The Service uses browser <code>localStorage</code> to store your authentication token on your device. This data never leaves your device except as the <code>Authorization</code> header on API requests to this Service. We do not use third-party cookies or tracking technologies.</p>
+
+  <!-- ── 10 ── -->
+  <h2>10. Children's Privacy</h2>
+
+  <p>The Service is not directed to children under the age of 13. We do not knowingly collect personal information from children under 13. If you believe we have inadvertently collected such information, contact us and we will delete it promptly.</p>
+
+  <!-- ── 11 ── -->
+  <h2>11. Changes to This Policy</h2>
+
+  <p>We may update this Privacy Policy from time to time. We will notify you of material changes by posting the updated policy on this page and updating the "Last updated" date. Continued use of the Service after changes constitutes acceptance of the updated policy.</p>
+
+  <!-- ── 12 ── -->
+  <h2>12. Contact</h2>
+
+  <p>If you have questions about this Privacy Policy, contact us at:</p>
+  <p>
+    <strong>Handsbreadth</strong><br>
+    <span class="placeholder">[YOUR ADDRESS]</span><br>
+    <a href="mailto:[YOUR EMAIL]"><span class="placeholder">[YOUR EMAIL]</span></a>
+  </p>
+
+  <footer>
+    <a href="/terms">Terms of Service</a> &nbsp;·&nbsp;
+    <a href="/">Sign In</a>
+  </footer>
+
+</div>
+</body>
+</html>

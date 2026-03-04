@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# start Redis server
-/opt/homebrew/opt/redis/bin/redis-server
+# start Redis server (background)
+/opt/homebrew/opt/redis/bin/redis-server &
 
 # export PATH to include PostgreSQL binaries
 export PATH="/opt/homebrew/opt/postgresql@18/bin:$PATH"

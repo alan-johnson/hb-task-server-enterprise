@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const path = require('path');
 
 const AppleRemindersProvider = require('./providers/apple');
 const MicrosoftTasksProvider = require('./providers/microsoft');
@@ -15,6 +16,7 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Initialize services
 const authService = new AuthService(process.env.JWT_SECRET);
@@ -96,6 +98,10 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Legal pages (clean URLs for Microsoft/Google app registration)
+app.get('/privacy', (req, res) => res.sendFile(path.join(__dirname, 'public', 'privacy.html')));
+app.get('/terms',   (req, res) => res.sendFile(path.join(__dirname, 'public', 'terms.html')));
+
 // Get available providers
 app.get('/api/providers', (req, res) => {
   res.json({
@@ -161,6 +167,16 @@ app.get('/auth/me', authService.requireAuth(), async (req, res) => {
   res.json({ user });
 });
 
+// Get connected provider status for the current user
+app.get('/auth/providers/status', authService.requireAuth(), async (req, res) => {
+  const status = { apple: true }; // always available on macOS
+  for (const p of ['microsoft', 'google']) {
+    const creds = await userService.getCredentials(req.user.userId, p);
+    status[p] = !!creds;
+  }
+  res.json(status);
+});
+
 // ============================================
 // Provider Authentication Routes (Protected)
 // ============================================
@@ -215,17 +231,62 @@ app.get('/auth/google/callback', async (req, res) => {
       refreshToken: tokens.refresh_token
     });
     
-    res.json({ 
-      success: true,
-      message: 'Google Tasks connected successfully',
-      provider: 'google'
-    });
+    res.redirect('/dashboard.html?connected=google');
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Microsoft - Store access token
+// Microsoft OAuth - Get auth URL
+app.get('/auth/microsoft/url', authService.requireAuth(), (req, res) => {
+  try {
+    const provider = new MicrosoftTasksProvider({
+      clientId:     process.env.MICROSOFT_CLIENT_ID,
+      clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
+      tenantId:     process.env.MICROSOFT_TENANT_ID,
+      redirectUri:  process.env.MICROSOFT_REDIRECT_URI,
+    });
+    const authUrl = provider.getAuthUrl();
+    const state = Buffer.from(JSON.stringify({
+      userId:    req.user.userId,
+      timestamp: Date.now(),
+    })).toString('base64');
+    res.json({ authUrl: `${authUrl}&state=${state}` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Microsoft OAuth - Callback
+app.get('/auth/microsoft/callback', async (req, res) => {
+  try {
+    const { code, state, error, error_description } = req.query;
+    if (error) return res.status(400).json({ error, error_description });
+    if (!state) return res.status(400).json({ error: 'Missing state parameter' });
+
+    const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
+    const userId = stateData.userId;
+
+    const provider = new MicrosoftTasksProvider({
+      clientId:     process.env.MICROSOFT_CLIENT_ID,
+      clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
+      tenantId:     process.env.MICROSOFT_TENANT_ID,
+      redirectUri:  process.env.MICROSOFT_REDIRECT_URI,
+    });
+
+    const tokens = await provider.getTokensFromCode(code);
+    await userService.storeCredentials(userId, 'microsoft', {
+      accessToken:  tokens.access_token,
+      refreshToken: tokens.refresh_token || null,
+    });
+
+    res.redirect('/dashboard.html?connected=microsoft');
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Microsoft - Store access token (manual fallback)
 app.post('/auth/microsoft/token', authService.requireAuth(), async (req, res) => {
   try {
     const { accessToken } = req.body;
@@ -415,9 +476,11 @@ app.listen(PORT, () => {
   console.log('  POST /auth/login');
   console.log('  GET  /auth/me');
   console.log('\n🔗 Provider connection endpoints:');
+  console.log('  GET    /auth/microsoft/url');
+  console.log('  GET    /auth/microsoft/callback');
+  console.log('  POST   /auth/microsoft/token  (manual fallback)');
   console.log('  GET    /auth/google/url');
   console.log('  GET    /auth/google/callback');
-  console.log('  POST   /auth/microsoft/token');
   console.log('  DELETE /auth/provider/:provider');
   console.log('  PATCH  /auth/default-provider');
   console.log('\n📋 Task endpoints (require authentication):');

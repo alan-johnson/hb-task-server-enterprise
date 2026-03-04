@@ -165,16 +165,44 @@ The first time you run the server, macOS may prompt you to grant Terminal access
 #### Microsoft Tasks
 
 1. Register an app in [Azure Portal](https://portal.azure.com) > **Microsoft Entra ID** > **Manage** > **App registrations** (Azure Active Directory was renamed to Microsoft Entra ID in 2023)
-2. Add delegated permission: `Tasks.ReadWrite` (Microsoft Graph)
-3. Create a client secret
-4. Set redirect URI: `http://localhost:3500/auth/microsoft/callback`
+2. Add delegated permissions under **Manage > API permissions**: `Tasks.ReadWrite`, `offline_access`, `User.Read` (Microsoft Graph)
+3. Create a client secret under **Manage > Certificates & secrets > New client secret** — copy the **Value** (not the Secret ID) immediately
+4. Register the redirect URI under **Manage > Authentication > Add a platform > Web**:
+   ```
+   http://localhost:3500/auth/microsoft/callback
+   ```
 5. Add to `.env`:
    ```
    MICROSOFT_CLIENT_ID=<application-id>
-   MICROSOFT_CLIENT_SECRET=<client-secret>
+   MICROSOFT_CLIENT_SECRET=<client-secret-value>
    MICROSOFT_TENANT_ID=<tenant-id>
    MICROSOFT_REDIRECT_URI=http://localhost:3500/auth/microsoft/callback
    ```
+
+**Connecting a user to Microsoft Tasks:**
+
+Each user connects their own Microsoft account independently. The flow uses standard OAuth 2.0 — Microsoft shows a consent screen listing exactly what the app will access.
+
+```bash
+# 1. Get the OAuth authorization URL (requires a logged-in user's JWT token)
+curl -s http://localhost:3500/auth/microsoft/url \
+  -H "Authorization: Bearer <jwt-token>" | jq .authUrl
+
+# 2. Open the returned URL in a browser
+#    - Sign in with your Microsoft account
+#    - Microsoft displays a consent prompt listing the requested permissions:
+#        • Read and write your tasks (Tasks.ReadWrite)
+#        • Maintain access to data you have given it access to (offline_access)
+#        • Sign you in and read your profile (User.Read)
+#    - Click Accept — Microsoft redirects to /auth/microsoft/callback automatically
+#    - You will see: { "success": true, "message": "Microsoft Tasks connected successfully" }
+
+# 3. The server stores the tokens — the user can now access Microsoft Tasks
+curl -s "http://localhost:3500/api/lists?provider=microsoft" \
+  -H "Authorization: Bearer <jwt-token>" | jq .
+```
+
+> Each user grants consent for their own account only. No admin approval is required.
 
 #### Google Tasks
 
@@ -208,9 +236,11 @@ Obtain a token from `POST /auth/register` or `POST /auth/login`.
 | `POST` | `/auth/register` | No | Register a new user |
 | `POST` | `/auth/login` | No | Log in, receive a token |
 | `GET` | `/auth/me` | Yes | Get current user info |
+| `GET` | `/auth/microsoft/url` | Yes | Get Microsoft OAuth URL |
+| `GET` | `/auth/microsoft/callback` | — | Microsoft OAuth callback |
+| `POST` | `/auth/microsoft/token` | Yes | Store Microsoft token manually (fallback) |
 | `GET` | `/auth/google/url` | Yes | Get Google OAuth URL |
 | `GET` | `/auth/google/callback` | — | Google OAuth callback |
-| `POST` | `/auth/microsoft/token` | Yes | Store Microsoft access token |
 | `DELETE` | `/auth/provider/:provider` | Yes | Disconnect a provider |
 | `PATCH` | `/auth/default-provider` | Yes | Set default provider |
 
@@ -358,7 +388,12 @@ Generate a valid key: `node -e "console.log(require('crypto').randomBytes(32).to
 Go to System Settings > Privacy & Security > Automation and grant Terminal access to Reminders.
 
 **Microsoft: "Client not initialized"**
-The user needs a stored access token. Call `POST /auth/microsoft/token` first.
+The user has not connected Microsoft Tasks yet. Complete the OAuth flow via `GET /auth/microsoft/url`.
+
+**Microsoft: "Token exchange failed" or AADSTS errors**
+- Ensure `MICROSOFT_REDIRECT_URI` in `.env` exactly matches the redirect URI registered in Azure Portal
+- Ensure `Tasks.ReadWrite`, `offline_access`, and `User.Read` delegated permissions are added and granted
+- The `MICROSOFT_CLIENT_SECRET` must be the **Value** field, not the Secret ID (GUIDs are Secret IDs, not values)
 
 **Google: "Invalid grant"**
 The OAuth authorization code expired. Repeat the flow from `GET /auth/google/url`.

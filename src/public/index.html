@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Task Server — Sign In</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="auth-container">
+    <h1 id="form-title">Sign In</h1>
+
+    <div id="error-msg" class="error-msg"></div>
+
+    <!-- Login form -->
+    <form id="login-form">
+      <div class="form-group">
+        <label for="login-username">Username</label>
+        <input id="login-username" type="text" autocomplete="username" required>
+      </div>
+      <div class="form-group">
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn btn-primary">Sign In</button>
+    </form>
+
+    <!-- Register form (hidden initially) -->
+    <form id="register-form" style="display:none">
+      <div class="form-group">
+        <label for="reg-username">Username</label>
+        <input id="reg-username" type="text" autocomplete="username" required>
+      </div>
+      <div class="form-group">
+        <label for="reg-email">Email <span style="color:#999;font-weight:400">(optional)</span></label>
+        <input id="reg-email" type="email" autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label for="reg-password">Password</label>
+        <input id="reg-password" type="password" autocomplete="new-password" required>
+      </div>
+      <button type="submit" class="btn btn-primary">Create Account</button>
+    </form>
+
+    <div class="toggle-link">
+      <span id="toggle-text">Don't have an account?</span>
+      <a id="toggle-link" onclick="toggleForm()">Register</a>
+    </div>
+  </div>
+
+  <script>
+    // Redirect to dashboard if already logged in
+    if (localStorage.getItem('token')) {
+      window.location.href = '/dashboard.html';
+    }
+
+    let showingLogin = true;
+
+    function toggleForm() {
+      showingLogin = !showingLogin;
+      document.getElementById('login-form').style.display = showingLogin ? '' : 'none';
+      document.getElementById('register-form').style.display = showingLogin ? 'none' : '';
+      document.getElementById('form-title').textContent = showingLogin ? 'Sign In' : 'Create Account';
+      document.getElementById('toggle-text').textContent = showingLogin ? "Don't have an account?" : 'Already have an account?';
+      document.getElementById('toggle-link').textContent = showingLogin ? 'Register' : 'Sign In';
+      hideError();
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('error-msg');
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+
+    function hideError() {
+      document.getElementById('error-msg').style.display = 'none';
+    }
+
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideError();
+      const username = document.getElementById('login-username').value.trim();
+      const password = document.getElementById('login-password').value;
+      try {
+        const res = await fetch('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (!res.ok) { showError(data.error || 'Login failed'); return; }
+        localStorage.setItem('token', data.token);
+        window.location.href = '/dashboard.html';
+      } catch {
+        showError('Could not reach the server. Is it running?');
+      }
+    });
+
+    document.getElementById('register-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideError();
+      const username = document.getElementById('reg-username').value.trim();
+      const email    = document.getElementById('reg-email').value.trim();
+      const password = document.getElementById('reg-password').value;
+      try {
+        const res = await fetch('/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, email: email || undefined })
+        });
+        const data = await res.json();
+        if (!res.ok) { showError(data.error || 'Registration failed'); return; }
+        localStorage.setItem('token', data.token);
+        window.location.href = '/dashboard.html';
+      } catch {
+        showError('Could not reach the server. Is it running?');
+      }
+    });
+  </script>
+</body>
+</html>
