@@ -9,6 +9,9 @@ client_secret*.json
 # User data (contains hashed passwords and OAuth tokens — never commit)
 data/
 
+# Server PID
+.server.pid
+
 # Logs
 logs/
 *.log
