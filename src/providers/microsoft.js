@@ -1,6 +1,22 @@
 const { Client } = require('@microsoft/microsoft-graph-client');
 const { ClientSecretCredential } = require('@azure/identity');
 
+function extractNotes(body) {
+  if (!body?.content) return undefined;
+  if (body.contentType === 'html') {
+    // Strip HTML tags and decode basic entities
+    return body.content
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .trim() || undefined;
+  }
+  return body.content.trim() || undefined;
+}
+
 class MicrosoftTasksProvider {
   constructor(config) {
     this.name = 'Microsoft Tasks';
@@ -108,7 +124,8 @@ class MicrosoftTasksProvider {
       importance: task.importance,
       dueDate: task.dueDateTime?.dateTime,
       createdDate: task.createdDateTime,
-      body: task.body?.content
+      updated: task.lastModifiedDateTime,
+      notes: extractNotes(task.body)
     }));
   }
 
@@ -130,7 +147,7 @@ class MicrosoftTasksProvider {
       dueDate: task.dueDateTime?.dateTime,
       createdDate: task.createdDateTime,
       lastModified: task.lastModifiedDateTime,
-      body: task.body?.content,
+      notes: extractNotes(task.body),
       categories: task.categories
     };
   }
