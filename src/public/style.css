@@ -570,6 +570,51 @@ body.dashboard {
 
 .modal-box textarea:focus { border-color: #0071e3; }
 
+/* ── Tag pills ── */
+.tag-pill {
+  display: inline-block;
+  font-size: .68rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  padding: .1rem .35rem;
+  margin-right: .4rem;
+  vertical-align: middle;
+  line-height: 1.4;
+}
+
+.tag-pill-now     { background: #ffe5e5; color: #c00; }
+.tag-pill-not-now { background: #fff3cd; color: #7a5800; }
+.tag-pill-later   { background: #ebebf0; color: #555; }
+
+/* ── Card left-border accent by tag ── */
+.task-card-now     { border-left: 3px solid #ff3b30; padding-left: calc(1.25rem - 3px); }
+.task-card-not-now { border-left: 3px solid #ff9500; padding-left: calc(1.25rem - 3px); }
+.task-card-later   { border-left: 3px solid #d2d2d7; padding-left: calc(1.25rem - 3px); }
+
+/* ── Section label color accents ── */
+.tag-section-now     { color: #c00; }
+.tag-section-not-now { color: #7a5800; }
+.tag-section-later   { color: #555; }
+
+/* ── Priority select in modal ── */
+.modal-box select {
+  width: 100%;
+  padding: .6rem .8rem;
+  border: 1px solid #d2d2d7;
+  border-radius: 8px;
+  font-size: .95rem;
+  font-family: inherit;
+  background: #fff;
+  outline: none;
+  cursor: pointer;
+  transition: border-color .15s;
+  appearance: auto;
+}
+
+.modal-box select:focus { border-color: #0071e3; }
+
 @media (max-width: 480px) {
   .list-card { padding: .875rem 1rem; }
   .list-icon { font-size: 1.25rem; }
