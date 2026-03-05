@@ -4,6 +4,7 @@ package-lock.json
 
 # Environment variables (contains secrets — never commit)
 .env
+client_secret*.json
 
 # User data (contains hashed passwords and OAuth tokens — never commit)
 data/
@@ -27,3 +28,6 @@ Thumbs.db
 dist/
 build/
 coverage/
+
+# Docs
+TODO.md
