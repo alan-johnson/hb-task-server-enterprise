@@ -34,6 +34,8 @@ Connects to Microsoft To Do via the Microsoft Graph API using OAuth 2.0 delegate
 | Get tasks in a list | Returns id, name, completed, importance, dueDate, createdDate, lastUpdated, notes |
 | Get task details | Full detail including categories |
 | Create a task | Supports title, notes, due date, importance |
+| Update a task | PATCH to Graph API — partial update; only fields present in the request body are sent |
+| Delete a task | DELETE to Graph API |
 | Mark task complete | Sets status to `completed` via PATCH |
 | HTML body extraction | Notes returned as plain text — HTML tags and entities stripped automatically |
 | Batch task counts | All list counts fetched in parallel (`Promise.all`) in a single endpoint call |
@@ -57,6 +59,8 @@ Connects to Google Tasks via the Google Tasks API v1 using OAuth 2.0.
 | Get tasks in a list | Returns id, name, completed, notes, dueDate, position, last updated; includes completed and hidden tasks |
 | Get task details | Full detail including parent task id and associated links |
 | Create a task | Supports title, notes, due date |
+| Update a task | Uses `tasks.patch` for partial updates — only fields present in the request are sent |
+| Delete a task | `tasks.delete` — permanently removes the task |
 | Mark task complete | Sets status to `completed` via update |
 | Batch task counts | All list counts fetched in parallel |
 
@@ -77,6 +81,8 @@ Connects to the local Reminders app on macOS via AppleScript. No OAuth or cloud 
 | Get tasks in a list | Returns id, name, completed, notes, dueDate |
 | Get task details | Full detail including createdDate |
 | Create a task | Supports title, notes |
+| Update a task | Sets name, notes, and due date via AppleScript; due date is converted from `YYYY-MM-DD` to `M/D/YYYY` format for AppleScript |
+| Delete a task | `delete` command via AppleScript |
 | Mark task complete | Sets completed property via AppleScript |
 | Opt-in activation | Disabled by default; enabled with `ENABLE_APPLE_PROVIDER=true` |
 | Non-blocking execution | AppleScript runs via async `execAsync` — does not block the Node.js event loop |
@@ -101,13 +107,16 @@ getListCounts(onlyIncomplete)
 getTasks(listId)
 getTask(listId, taskId)
 createTask(listId, taskData)
+updateTask(listId, taskId, taskData)
 completeTask(listId, taskId)
+deleteTask(listId, taskId)
 ```
 
 **Benefits:**
 - The server routes never contain provider-specific logic — adding a new provider only requires implementing this interface
 - Clients use the same API endpoints regardless of which provider is active; only the `?provider=` query parameter changes
 - Task objects across all providers share a consistent shape (`id`, `name`, `completed`, `notes`, `dueDate`) with provider-specific fields added on top
+- Full CRUD is available on all three providers through a single consistent API surface
 
 ---
 
@@ -234,8 +243,8 @@ A lightweight in-memory store (`SimpleCache`) with automatic TTL expiry. No exte
 |---|---|---|
 | Provider status (`status:{userId}:{provider}`) | 5 minutes | Provider disconnect |
 | Task lists (`lists:{userId}:{provider}`) | 2 minutes | — |
-| Task counts (`counts:{userId}:{provider}:{flag}`) | 2 minutes | Provider disconnect, preferences change |
-| Tasks (`tasks:{userId}:{provider}:{listId}`) | 30 seconds | — |
+| Task counts (`counts:{userId}:{provider}:{flag}`) | 2 minutes | Provider disconnect, preferences change, task create, complete, delete |
+| Tasks (`tasks:{userId}:{provider}:{listId}`) | 30 seconds | Task create, update, complete, delete |
 
 **Benefits:**
 - Dramatically reduces calls to external task APIs (Microsoft Graph, Google Tasks API, AppleScript) for frequently-visited data
@@ -272,8 +281,13 @@ A browser-based interface served as static files from `src/public/` directly by 
 
 ### Tasks View (`/tasks.html`)
 
-- Displays tasks within a selected list
-- Shows completion status per task
+- Displays tasks within a selected list, split into incomplete and completed sections
+- **Create** — "+ New Task" button opens a modal form (name, notes, due date); Enter submits, Escape cancels
+- **Complete** — circle button on each incomplete task; turns green on hover; one click marks the task done
+- **Edit** — "Edit" button (visible on hover) opens a pre-filled modal; all fields editable; due date cleared to `null` when the date field is emptied
+- **Delete** — "Delete" button (visible on hover) opens a confirmation modal showing the task name; requires explicit confirmation before deletion
+- Action buttons are hidden at rest and revealed on card hover (always visible on mobile)
+- All mutations immediately invalidate the server-side cache and reload the task list
 
 ### Settings (`/settings.html`)
 
@@ -325,7 +339,9 @@ All task endpoints require a `Bearer` token. The provider is selected by `?provi
 | `GET` | `/api/lists/:listId/tasks` | All tasks in a list |
 | `GET` | `/api/lists/:listId/tasks/:taskId` | Single task detail |
 | `POST` | `/api/lists/:listId/tasks` | Create a new task |
+| `PATCH` | `/api/lists/:listId/tasks/:taskId` | Update a task (name, notes, due date) |
 | `PATCH` | `/api/lists/:listId/tasks/:taskId/complete` | Mark a task as complete |
+| `DELETE` | `/api/lists/:listId/tasks/:taskId` | Delete a task permanently |
 
 ### Other
 
@@ -344,6 +360,24 @@ All task endpoints require a `Bearer` token. The provider is selected by `?provi
 - Eliminates N+1 requests (one per list) from the client — a single call replaces the pattern of GET /api/lists followed by N × GET /api/lists/:id/tasks
 - Respects the `showCompleted` preference server-side — completed tasks are excluded from counts without the client doing any filtering
 - Results are cached for 2 minutes per user+provider, so repeated calls from the web UI are served from memory
+
+### Update Endpoint
+
+`PATCH /api/lists/:listId/tasks/:taskId` accepts a partial body — only fields included in the request are updated.
+
+```json
+{ "name": "Revised title", "notes": "Updated notes", "dueDate": "2026-04-01" }
+```
+
+Pass `"dueDate": null` to explicitly clear a due date. Invalidates the task list cache on success.
+
+### Delete Endpoint
+
+`DELETE /api/lists/:listId/tasks/:taskId` permanently removes the task from the provider. Invalidates both the task list cache and the counts cache on success.
+
+**Benefits of separating update from complete:**
+- Allows editing the name, notes, or due date of a task without changing its completion state
+- Completion remains a dedicated one-way action (`/complete`), making it harder to accidentally un-complete a task through a generic update
 
 ---
 

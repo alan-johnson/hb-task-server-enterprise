@@ -89,6 +89,7 @@ class GoogleTasksProvider {
       id: task.id,
       name: task.title,
       completed: task.status === 'completed',
+      priority: 'low',
       notes: task.notes,
       dueDate: task.due,
       updated: task.updated,
@@ -113,6 +114,7 @@ class GoogleTasksProvider {
       id: task.id,
       name: task.title,
       completed: task.status === 'completed',
+      priority: 'low',
       notes: task.notes,
       dueDate: task.due,
       updated: task.updated,
@@ -152,6 +154,27 @@ class GoogleTasksProvider {
       }
     }));
     return counts;
+  }
+
+  // Update an existing task
+  async updateTask(listId, taskId, taskData) {
+    if (!this.tasksApi) throw new Error('Client not initialized. Call initialize() first.');
+
+    const patch = {};
+    if (taskData.name)                patch.title = taskData.name;
+    if (taskData.notes !== undefined)  patch.notes = taskData.notes || '';
+    if (taskData.dueDate)              patch.due = `${taskData.dueDate}T00:00:00.000Z`;
+    else if (taskData.dueDate === null) patch.due = null;
+
+    await this.tasksApi.tasks.patch({ tasklist: listId, task: taskId, requestBody: patch });
+    return { success: true, message: 'Task updated' };
+  }
+
+  // Delete a task
+  async deleteTask(listId, taskId) {
+    if (!this.tasksApi) throw new Error('Client not initialized. Call initialize() first.');
+    await this.tasksApi.tasks.delete({ tasklist: listId, task: taskId });
+    return { success: true, message: 'Task deleted' };
   }
 
   // Create a new task

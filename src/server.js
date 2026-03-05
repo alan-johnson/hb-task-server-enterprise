@@ -508,17 +508,28 @@ app.get('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), async (re
 app.post('/api/lists/:listId/tasks', authService.requireAuth(), async (req, res) => {
   try {
     const { listId } = req.params;
-    const taskData = req.body;
     const { provider, providerName } = getProviderForUser(req);
     await initializeProvider(provider, providerName, req.user.userId);
-    
-    const task = await provider.createTask(listId, taskData);
-    res.status(201).json({
-      provider: providerName,
-      user: req.user.username,
-      listId,
-      task
-    });
+
+    const task = await provider.createTask(listId, req.body);
+    cache.delete(`tasks:${req.user.userId}:${providerName}:${listId}`);
+    cache.deletePrefix(`counts:${req.user.userId}:${providerName}:`);
+    res.status(201).json({ provider: providerName, user: req.user.username, listId, task });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update a task
+app.patch('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), async (req, res) => {
+  try {
+    const { listId, taskId } = req.params;
+    const { provider, providerName } = getProviderForUser(req);
+    await initializeProvider(provider, providerName, req.user.userId);
+
+    const result = await provider.updateTask(listId, taskId, req.body);
+    cache.delete(`tasks:${req.user.userId}:${providerName}:${listId}`);
+    res.json({ provider: providerName, user: req.user.username, listId, taskId, ...result });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -530,15 +541,27 @@ app.patch('/api/lists/:listId/tasks/:taskId/complete', authService.requireAuth()
     const { listId, taskId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
     await initializeProvider(provider, providerName, req.user.userId);
-    
+
     const result = await provider.completeTask(listId, taskId);
-    res.json({
-      provider: providerName,
-      user: req.user.username,
-      listId,
-      taskId,
-      ...result
-    });
+    cache.delete(`tasks:${req.user.userId}:${providerName}:${listId}`);
+    cache.deletePrefix(`counts:${req.user.userId}:${providerName}:`);
+    res.json({ provider: providerName, user: req.user.username, listId, taskId, ...result });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete a task
+app.delete('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), async (req, res) => {
+  try {
+    const { listId, taskId } = req.params;
+    const { provider, providerName } = getProviderForUser(req);
+    await initializeProvider(provider, providerName, req.user.userId);
+
+    const result = await provider.deleteTask(listId, taskId);
+    cache.delete(`tasks:${req.user.userId}:${providerName}:${listId}`);
+    cache.deletePrefix(`counts:${req.user.userId}:${providerName}:`);
+    res.json({ provider: providerName, user: req.user.username, listId, taskId, ...result });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -582,6 +605,8 @@ app.listen(PORT, () => {
   console.log('  GET    /api/lists/:listId/tasks');
   console.log('  GET    /api/lists/:listId/tasks/:taskId');
   console.log('  POST   /api/lists/:listId/tasks');
+  console.log('  PATCH  /api/lists/:listId/tasks/:taskId');
   console.log('  PATCH  /api/lists/:listId/tasks/:taskId/complete');
+  console.log('  DELETE /api/lists/:listId/tasks/:taskId');
   console.log('\n💡 All task endpoints require: Authorization: Bearer <token>');
 });

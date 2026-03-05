@@ -15,9 +15,16 @@
         <div class="user-info" id="user-info">Loading…</div>
       </div>
       <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="openCreateModal()">+ New Task</button>
         <a href="/lists.html" class="btn btn-secondary btn-sm">All Lists</a>
         <a href="/settings.html" class="btn btn-secondary btn-sm">Settings</a>
         <button class="btn btn-secondary btn-sm" onclick="logout()">Log Out</button>
+      </div>
+      <div class="filter-bar" id="filter-bar">
+        <button class="filter-btn filter-btn-active" data-filter="all"    onclick="setFilter('all')">All</button>
+        <button class="filter-btn" data-filter="Now"     onclick="setFilter('Now')">Now</button>
+        <button class="filter-btn" data-filter="Not Now" onclick="setFilter('Not Now')">Not Now</button>
+        <button class="filter-btn" data-filter="Later"   onclick="setFilter('Later')">Later</button>
       </div>
     </div>
 
@@ -32,44 +39,98 @@
 
   </div>
 
+  <!-- ── Task create / edit modal ── -->
+  <div id="task-modal" class="modal-overlay" style="display:none" onclick="handleOverlayClick(event)">
+    <div class="modal-box">
+      <h2 id="modal-title">New Task</h2>
+      <div class="form-group">
+        <label for="modal-name">Name</label>
+        <input id="modal-name" type="text" placeholder="Task name" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label for="modal-notes">Notes</label>
+        <textarea id="modal-notes" rows="3" placeholder="Optional notes"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="modal-due">Due Date</label>
+        <input id="modal-due" type="date">
+      </div>
+      <div class="form-group" id="priority-group">
+        <label for="modal-priority">Priority</label>
+        <select id="modal-priority">
+          <option value="low">Low (default)</option>
+          <option value="normal">Normal</option>
+          <option value="high">High</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" id="modal-submit" onclick="submitModal()">Create Task</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Delete confirmation modal ── -->
+  <div id="delete-modal" class="modal-overlay" style="display:none" onclick="handleDeleteOverlayClick(event)">
+    <div class="modal-box">
+      <h2>Delete Task?</h2>
+      <p class="modal-warn-text">Are you sure you want to delete <strong id="delete-task-name"></strong>? This cannot be undone.</p>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeDeleteModal()">Cancel</button>
+        <button class="btn btn-danger" onclick="confirmDelete()">Delete</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const token = localStorage.getItem('token');
     if (!token) { window.location.href = '/'; }
 
-    const params = new URLSearchParams(window.location.search);
-    const provider  = params.get('provider')  || 'apple';
-    const listId    = params.get('listId')    || '';
-    const listName  = params.get('listName')  || 'Tasks';
+    const params    = new URLSearchParams(window.location.search);
+    const provider  = params.get('provider') || 'microsoft';
+    const listId    = params.get('listId')   || '';
+    const listName  = params.get('listName') || 'Tasks';
 
     const PROVIDERS = {
-      apple:     { label: 'Apple',     icon: '🍎', color: '#2e7d32', bg: '#e8f5e9' },
-      microsoft: { label: 'Microsoft', icon: '🟦', color: '#1565c0', bg: '#e3f2fd' },
-      google:    { label: 'Google',    icon: '🟥', color: '#b71c1c', bg: '#ffebee' }
+      apple:     { label: 'Apple',     icon: '🍎' },
+      microsoft: { label: 'Microsoft', icon: '🟦' },
+      google:    { label: 'Google',    icon: '🟥' }
     };
 
     document.getElementById('page-title').textContent = listName;
-    const p = PROVIDERS[provider] || { label: provider, icon: '📋' };
     document.title = `${listName} — Task Server`;
+    const p = PROVIDERS[provider] || { label: provider, icon: '📋' };
+
+    // Module state
+    let tasksData      = [];
+    let showCompleted  = false;
+    let editingTaskId  = null;
+    let deletingTaskId = null;
+    let activeFilter   = 'all';
+
+    // Hide priority selector for Google (no priority field)
+    if (provider === 'google') {
+      document.getElementById('priority-group').style.display = 'none';
+    }
+
+    // ── Helpers ────────────────────────────────────────────────
 
     function authHeaders() {
       return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
     }
 
-    function logout() {
-      localStorage.clear();
-      window.location.href = '/';
-    }
+    function logout() { localStorage.clear(); window.location.href = '/'; }
 
     function showBanner(msg, type = 'success') {
       const el = document.getElementById('banner');
       el.textContent = msg;
       el.className = `banner banner-${type}`;
       el.style.display = 'block';
-      setTimeout(() => { el.style.display = 'none'; }, 6000);
+      setTimeout(() => { el.style.display = 'none'; }, 5000);
     }
 
     function escHtml(str) {
-      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
     function formatDate(iso) {
@@ -77,51 +138,322 @@
       return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     }
 
+    // Parse any date string to YYYY-MM-DD for <input type="date">
+    function toInputDate(raw) {
+      if (!raw) return '';
+      // Already YYYY-MM-DD or starts with it
+      const m = raw.match(/(\d{4})-(\d{2})-(\d{2})/);
+      if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+      // Try parsing freeform (e.g. Apple's locale date strings)
+      const d = new Date(raw);
+      if (isNaN(d)) return '';
+      return d.toISOString().slice(0, 10);
+    }
+
+    function taskById(id) { return tasksData.find(t => t.id === id); }
+
+    // ── Priority classification ─────────────────────────────────
+
+    function classifyTask(task) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      let dueDate = null;
+      if (task.dueDate) {
+        const m = task.dueDate.match(/(\d{4})-(\d{2})-(\d{2})/);
+        if (m) {
+          dueDate = new Date(+m[1], +m[2] - 1, +m[3]);
+        } else {
+          const d = new Date(task.dueDate);
+          if (!isNaN(d)) { dueDate = new Date(d); dueDate.setHours(0, 0, 0, 0); }
+        }
+      }
+
+      const priority = task.priority || 'low';
+      const isUrgent    = dueDate && dueDate <= today;
+      const hasFutureDue = dueDate && dueDate > today;
+
+      if (isUrgent || priority === 'high')             return 'Now';
+      if (hasFutureDue || priority === 'normal')        return 'Not Now';
+      return 'Later';
+    }
+
+    function setFilter(filter) {
+      activeFilter = filter;
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('filter-btn-active', btn.dataset.filter === filter);
+      });
+      const shown = showCompleted ? tasksData : tasksData.filter(t => !t.completed);
+      renderTasks(shown);
+    }
+
+    // ── Render ─────────────────────────────────────────────────
+
     function renderTasks(tasks) {
       const container = document.getElementById('tasks-container');
-
-      if (!tasks.length) {
-        container.innerHTML = `<div class="empty-state">No tasks in this list.</div>`;
-        return;
-      }
 
       const incomplete = tasks.filter(t => !t.completed);
       const completed  = tasks.filter(t =>  t.completed);
 
-      let html = '';
+      // Apply filter
+      const filtered = activeFilter === 'all'
+        ? incomplete
+        : incomplete.filter(t => classifyTask(t) === activeFilter);
 
-      if (incomplete.length) {
-        html += incomplete.map(t => taskCard(t, false)).join('');
+      const showingAll = activeFilter === 'all';
+
+      if (!filtered.length && !(showingAll && completed.length)) {
+        const msg = showingAll
+          ? `No tasks in this list.<br><a href="#" onclick="openCreateModal();return false;">Add the first task.</a>`
+          : `No <strong>${activeFilter}</strong> tasks.`;
+        container.innerHTML = `<div class="empty-state">${msg}</div>`;
+        return;
       }
 
-      if (completed.length) {
+      let html = '';
+
+      if (showingAll && filtered.length) {
+        // Group incomplete tasks by classification tag
+        const groups = { 'Now': [], 'Not Now': [], 'Later': [] };
+        for (const t of filtered) groups[classifyTask(t)].push(t);
+        for (const [label, items] of Object.entries(groups)) {
+          if (!items.length) continue;
+          html += `<div class="tasks-section-label tag-section-${label.replace(' ', '-').toLowerCase()}">${label} (${items.length})</div>`;
+          html += items.map(t => taskCard(t)).join('');
+        }
+      } else {
+        html += filtered.map(t => taskCard(t)).join('');
+      }
+
+      // Completed tasks are only shown in the "All" view — they have no classification
+      if (showingAll && completed.length) {
         html += `<div class="tasks-section-label">Completed (${completed.length})</div>`;
-        html += completed.map(t => taskCard(t, true)).join('');
+        html += completed.map(t => taskCard(t)).join('');
       }
 
       container.innerHTML = html;
     }
 
-    function taskCard(task, done) {
+    function taskCard(task) {
+      const done    = task.completed;
+      const tag     = done ? null : classifyTask(task);
+      const tagPill = tag ? `<span class="tag-pill tag-pill-${tag.replace(' ', '-').toLowerCase()}">${tag}</span>` : '';
       const due     = task.dueDate ? `<span class="task-due">Due ${formatDate(task.dueDate)}</span>` : '';
       const updated = task.updated ? `<span class="task-due">Updated ${formatDate(task.updated)}</span>` : '';
       const notes   = task.notes   ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
       const hasDetails = !!(due || updated || notes);
+
+      const completeBtn = done
+        ? `<div class="task-check task-check-done">✓</div>`
+        : `<button class="task-check task-check-btn" title="Mark complete" onclick="completeTask('${escHtml(task.id)}')">○</button>`;
+
       return `
-        <div class="task-card${done ? ' task-card-done' : ''}${hasDetails ? ' task-card-expandable' : ''}"
-             ${hasDetails ? 'onclick="toggleTask(this)"' : ''}>
-          <div class="task-check">${done ? '✓' : ''}</div>
-          <div class="task-body">
-            <div class="task-name${done ? ' task-name-done' : ''}">${escHtml(task.name)}</div>
-            ${hasDetails ? `<div class="task-details">${due}${updated}${notes}</div>` : ''}
+        <div class="task-card${done ? ' task-card-done' : ''}${tag ? ` task-card-${tag.replace(' ', '-').toLowerCase()}` : ''}" data-task-id="${escHtml(task.id)}">
+          ${completeBtn}
+          <div class="task-body${hasDetails ? ' task-body-expandable' : ''}"
+               ${hasDetails ? `onclick="toggleExpand(this)"` : ''}>
+            <div class="task-name${done ? ' task-name-done' : ''}">${tagPill}${escHtml(task.name)}</div>
+            ${hasDetails ? `
+            <div class="task-details">
+              ${due}${updated}${notes}
+            </div>` : ''}
           </div>
-          ${hasDetails ? '<div class="task-expand-icon">›</div>' : ''}
+          ${hasDetails ? '<div class="task-expand-icon" onclick="toggleExpand(this.previousElementSibling)">›</div>' : ''}
+          <div class="task-actions">
+            <button class="task-action-btn" title="Edit task" onclick="openEditModal('${escHtml(task.id)}')">Edit</button>
+            <button class="task-action-btn task-action-delete" title="Delete task" onclick="openDeleteModal('${escHtml(task.id)}')">Delete</button>
+          </div>
         </div>
       `;
     }
 
-    function toggleTask(el) {
-      el.classList.toggle('task-card-expanded');
+    function toggleExpand(bodyEl) {
+      bodyEl.closest('.task-card').classList.toggle('task-card-expanded');
+    }
+
+    // ── Task actions ───────────────────────────────────────────
+
+    async function completeTask(taskId) {
+      const btn = document.querySelector(`[data-task-id="${CSS.escape(taskId)}"] .task-check-btn`);
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+      try {
+        const res = await fetch(
+          `/api/lists/${encodeURIComponent(listId)}/tasks/${encodeURIComponent(taskId)}/complete?provider=${encodeURIComponent(provider)}`,
+          { method: 'PATCH', headers: authHeaders() }
+        );
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+        await loadTasks();
+      } catch (err) {
+        showBanner(err.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '○'; }
+      }
+    }
+
+    // ── Create / Edit modal ────────────────────────────────────
+
+    function openCreateModal() {
+      editingTaskId = null;
+      document.getElementById('modal-title').textContent  = 'New Task';
+      document.getElementById('modal-submit').textContent = 'Create Task';
+      document.getElementById('modal-name').value     = '';
+      document.getElementById('modal-notes').value    = '';
+      document.getElementById('modal-due').value      = '';
+      document.getElementById('modal-priority').value = 'low';
+      document.getElementById('task-modal').style.display = 'flex';
+      document.getElementById('modal-name').focus();
+    }
+
+    function openEditModal(taskId) {
+      const task = taskById(taskId);
+      if (!task) return;
+      editingTaskId = taskId;
+      document.getElementById('modal-title').textContent  = 'Edit Task';
+      document.getElementById('modal-submit').textContent = 'Save Changes';
+      document.getElementById('modal-name').value     = task.name  || '';
+      document.getElementById('modal-notes').value    = task.notes || '';
+      document.getElementById('modal-due').value      = toInputDate(task.dueDate);
+      document.getElementById('modal-priority').value = task.priority || 'low';
+      document.getElementById('task-modal').style.display = 'flex';
+      document.getElementById('modal-name').focus();
+    }
+
+    function closeModal() {
+      document.getElementById('task-modal').style.display = 'none';
+      editingTaskId = null;
+    }
+
+    function handleOverlayClick(e) {
+      if (e.target === document.getElementById('task-modal')) closeModal();
+    }
+
+    async function submitModal() {
+      const name     = document.getElementById('modal-name').value.trim();
+      const notes    = document.getElementById('modal-notes').value.trim();
+      const due      = document.getElementById('modal-due').value;
+      const priority = document.getElementById('modal-priority').value;
+
+      if (!name) {
+        document.getElementById('modal-name').focus();
+        return;
+      }
+
+      const submitBtn = document.getElementById('modal-submit');
+      submitBtn.disabled = true;
+      const original = submitBtn.textContent;
+      submitBtn.textContent = 'Saving…';
+
+      const body = { name };
+      if (notes)    body.notes    = notes;
+      if (due)      body.dueDate  = due;
+      if (provider !== 'google') body.priority = priority;
+
+      try {
+        if (editingTaskId) {
+          // Update — also send notes/dueDate even if empty so user can clear them
+          body.notes   = notes;
+          body.dueDate = due || null;
+          const res = await fetch(
+            `/api/lists/${encodeURIComponent(listId)}/tasks/${encodeURIComponent(editingTaskId)}?provider=${encodeURIComponent(provider)}`,
+            { method: 'PATCH', headers: authHeaders(), body: JSON.stringify(body) }
+          );
+          if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+          showBanner('Task updated.');
+        } else {
+          const res = await fetch(
+            `/api/lists/${encodeURIComponent(listId)}/tasks?provider=${encodeURIComponent(provider)}`,
+            { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) }
+          );
+          if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+          showBanner('Task created.');
+        }
+        closeModal();
+        await loadTasks();
+      } catch (err) {
+        showBanner(err.message, 'error');
+      } finally {
+        submitBtn.disabled    = false;
+        submitBtn.textContent = original;
+      }
+    }
+
+    // ── Delete modal ───────────────────────────────────────────
+
+    function openDeleteModal(taskId) {
+      const task = taskById(taskId);
+      if (!task) return;
+      deletingTaskId = taskId;
+      document.getElementById('delete-task-name').textContent = task.name;
+      document.getElementById('delete-modal').style.display = 'flex';
+    }
+
+    function closeDeleteModal() {
+      document.getElementById('delete-modal').style.display = 'none';
+      deletingTaskId = null;
+    }
+
+    function handleDeleteOverlayClick(e) {
+      if (e.target === document.getElementById('delete-modal')) closeDeleteModal();
+    }
+
+    async function confirmDelete() {
+      if (!deletingTaskId) return;
+      const deleteBtn = document.querySelector('#delete-modal .btn-danger');
+      deleteBtn.disabled = true;
+      deleteBtn.textContent = 'Deleting…';
+
+      try {
+        const res = await fetch(
+          `/api/lists/${encodeURIComponent(listId)}/tasks/${encodeURIComponent(deletingTaskId)}?provider=${encodeURIComponent(provider)}`,
+          { method: 'DELETE', headers: authHeaders() }
+        );
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+        showBanner('Task deleted.');
+        closeDeleteModal();
+        await loadTasks();
+      } catch (err) {
+        showBanner(err.message, 'error');
+        deleteBtn.disabled    = false;
+        deleteBtn.textContent = 'Delete';
+      }
+    }
+
+    // ── Keyboard shortcuts ─────────────────────────────────────
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        closeModal();
+        closeDeleteModal();
+      }
+      if ((e.key === 'Enter') && document.getElementById('task-modal').style.display !== 'none') {
+        if (e.target.tagName !== 'TEXTAREA') { e.preventDefault(); submitModal(); }
+      }
+    });
+
+    // ── Data loading ───────────────────────────────────────────
+
+    async function loadTasks() {
+      try {
+        const res = await fetch(
+          `/api/lists/${encodeURIComponent(listId)}/tasks?provider=${encodeURIComponent(provider)}`,
+          { headers: authHeaders() }
+        );
+        if (res.status === 401) { logout(); return; }
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Failed to load tasks'); }
+
+        const data  = await res.json();
+        tasksData   = data.tasks || [];
+        const shown = showCompleted ? tasksData : tasksData.filter(t => !t.completed);
+        renderTasks(shown);
+        // Restore filter button active state after re-render
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+          btn.classList.toggle('filter-btn-active', btn.dataset.filter === activeFilter);
+        });
+      } catch (err) {
+        showBanner(err.message, 'error');
+        document.getElementById('tasks-container').innerHTML =
+          `<div class="empty-state">Could not load tasks.</div>`;
+      }
     }
 
     async function init() {
@@ -131,7 +463,6 @@
         return;
       }
 
-      let showCompleted = false;
       try {
         const res = await fetch('/auth/me', { headers: authHeaders() });
         if (res.status === 401) { logout(); return; }
@@ -143,25 +474,7 @@
         document.getElementById('user-info').textContent = '';
       }
 
-      try {
-        const res = await fetch(
-          `/api/lists/${encodeURIComponent(listId)}/tasks?provider=${encodeURIComponent(provider)}`,
-          { headers: authHeaders() }
-        );
-        if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || 'Failed to load tasks');
-        }
-        const data = await res.json();
-        const tasks = showCompleted
-          ? (data.tasks || [])
-          : (data.tasks || []).filter(t => !t.completed);
-        renderTasks(tasks);
-      } catch (err) {
-        showBanner(err.message, 'error');
-        document.getElementById('tasks-container').innerHTML =
-          `<div class="empty-state">Could not load tasks.</div>`;
-      }
+      await loadTasks();
     }
 
     init();
