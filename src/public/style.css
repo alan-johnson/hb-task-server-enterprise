@@ -450,8 +450,130 @@ body.dashboard {
 .toggle-switch input:checked + .toggle-track { background: #34c759; }
 .toggle-switch input:checked + .toggle-track::after { transform: translateX(18px); }
 
+/* ── Task check button ── */
+.task-check-done {
+  font-size: 1rem;
+  color: #34c759;
+  font-weight: 700;
+  line-height: 1.5rem;
+  width: 1.5rem;
+  flex-shrink: 0;
+  margin-top: .1rem;
+}
+
+.task-check-btn {
+  background: none;
+  border: 1.5px solid #bbb;
+  border-radius: 50%;
+  width: 1.3rem;
+  height: 1.3rem;
+  font-size: .7rem;
+  color: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+  margin-top: .1rem;
+  transition: border-color .15s;
+}
+
+.task-check-btn:hover { border-color: #34c759; }
+.task-check-btn:disabled { opacity: .5; cursor: default; }
+
+/* ── Task body expand ── */
+.task-body-expandable { cursor: pointer; }
+.task-body-expandable:hover .task-name { color: #0071e3; }
+
+/* ── Task action buttons (shown on hover) ── */
+.task-actions {
+  display: flex;
+  gap: .25rem;
+  flex-shrink: 0;
+  align-items: center;
+  opacity: 0;
+  transition: opacity .15s;
+}
+
+.task-card:hover .task-actions,
+.task-card:focus-within .task-actions { opacity: 1; }
+
+.task-action-btn {
+  background: none;
+  border: 1px solid #d2d2d7;
+  border-radius: 6px;
+  padding: .2rem .5rem;
+  font-size: .75rem;
+  color: #555;
+  cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+  white-space: nowrap;
+}
+
+.task-action-btn:hover { background: #f0f0f5; border-color: #bbb; color: #1d1d1f; }
+
+.task-action-delete { color: #c00; border-color: #fcc; }
+.task-action-delete:hover { background: #fff2f2; border-color: #f99; color: #c00; }
+
+/* ── Modal ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 1rem;
+}
+
+.modal-box {
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 8px 40px rgba(0,0,0,.22);
+  padding: 1.75rem;
+  width: 100%;
+  max-width: 440px;
+}
+
+.modal-box h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+}
+
+.modal-warn-text {
+  font-size: .9rem;
+  color: #444;
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  gap: .75rem;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+}
+
+.modal-box textarea {
+  width: 100%;
+  padding: .6rem .8rem;
+  border: 1px solid #d2d2d7;
+  border-radius: 8px;
+  font-size: .95rem;
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+  transition: border-color .15s;
+}
+
+.modal-box textarea:focus { border-color: #0071e3; }
+
 @media (max-width: 480px) {
   .list-card { padding: .875rem 1rem; }
   .list-icon { font-size: 1.25rem; }
   .task-card { padding: .75rem 1rem; }
+  .task-actions { opacity: 1; }
+  .modal-box { padding: 1.25rem; }
 }
