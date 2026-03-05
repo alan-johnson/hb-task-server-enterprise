@@ -184,8 +184,7 @@
       });
 
       if (connectedProviders.length === 0) {
-        document.getElementById('lists-container').innerHTML =
-          `<div class="empty-state">No providers connected. <a href="/dashboard.html">Connect one on the Dashboard.</a></div>`;
+        window.location.href = '/settings.html?reconnect=true';
         return;
       }
 

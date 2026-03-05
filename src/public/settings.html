@@ -176,12 +176,16 @@
         renderProviderStatus('google', false);
       }
 
-      // Show success banner if redirected from OAuth callback
+      // Show banners based on query params
       const params = new URLSearchParams(window.location.search);
       const connected = params.get('connected');
+      const reconnect = params.get('reconnect');
       if (connected) {
         const name = connected.charAt(0).toUpperCase() + connected.slice(1);
         showBanner(`${name} Tasks connected successfully!`);
+        window.history.replaceState({}, '', '/settings.html');
+      } else if (reconnect) {
+        showBanner('No providers are connected. Please connect at least one to view your lists.', 'error');
         window.history.replaceState({}, '', '/settings.html');
       }
     }
