@@ -4,58 +4,59 @@ This guide explains how to run the task server in multi-user mode with authentic
 
 ## Overview
 
-In multi-user mode:  
-- ✅ Each user has their own account with username/password  
-- ✅ Users can only access their own tasks (complete isolation)  
-- ✅ JWT-based authentication  
-- ✅ Each user can connect their own Microsoft/Google accounts  
-- ✅ For Apple Reminders, each user accesses their own local Reminders app
+In multi-user mode:
+- Each user has their own account with username and password
+- Users can only access their own tasks (complete isolation)
+- JWT-based authentication (30-day tokens)
+- Each user can connect their own Microsoft and Google accounts via OAuth
+- Apple Reminders is available locally on macOS (opt-in)
+- OAuth tokens are encrypted at rest (AES-256-GCM) in PostgreSQL
 
 ## Setup
 
-### 1. Install Dependencies
+### 1. Install dependencies
 
 ```bash
 npm install
 ```
 
-This will install the additional dependencies:
-- `jsonwebtoken` - for JWT token generation/verification
-- `bcrypt` - for password hashing
-
-### 2. Configure Environment
+### 2. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and set a secure JWT secret:
-
-```
-JWT_SECRET=your-long-random-secret-key-at-least-32-characters
-DATA_DIR=./data
-```
-
-**IMPORTANT:** Change the `JWT_SECRET` to a long, random string in production!
-
-### 3. Start the Multi-User Server
+Edit `.env` with at minimum:
 
 ```bash
-npm run start:multiuser
+DATABASE_URL=postgres://<your-os-username>@localhost:5432/hb_task_server
+JWT_SECRET=<long-random-string>
+ENCRYPTION_KEY=<64-character-hex-string>
 ```
+
+Generate the encryption key:
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+### 3. Start the server
+
+```bash
+npm start
+```
+
+The server runs on port `3500` by default. The database schema is applied automatically on first boot.
+
+---
 
 ## User Registration & Authentication
 
-### Register a New User
+### Register a new user
 
 ```bash
-curl -X POST http://localhost:3000/auth/register \
+curl -s -X POST http://localhost:3500/auth/register \
   -H "Content-Type: application/json" \
-  -d '{
-    "username": "alice",
-    "password": "secure-password",
-    "email": "alice@example.com"
-  }'
+  -d '{"username": "alice", "password": "secure-password", "email": "alice@example.com"}' | jq .
 ```
 
 Response:
@@ -72,251 +73,213 @@ Response:
 }
 ```
 
-**Save the token!** You'll need it for all authenticated requests.
+Save the token — you'll need it for all authenticated requests. Tokens are valid for **30 days**.
 
-### Login (Get a New Token)
+### Log in
 
 ```bash
-curl -X POST http://localhost:3000/auth/login \
+curl -s -X POST http://localhost:3500/auth/login \
   -H "Content-Type: application/json" \
-  -d '{
-    "username": "alice",
-    "password": "secure-password"
-  }'
+  -d '{"username": "alice", "password": "secure-password"}' | jq .
 ```
 
-### Get Current User Info
+### Refresh a token (before it expires)
 
 ```bash
-curl http://localhost:3000/auth/me \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+curl -s -X POST http://localhost:3500/auth/refresh \
+  -H "Authorization: Bearer <current-token>" | jq .
 ```
 
-## Using the API with Authentication
+Returns a new 30-day token. The old token remains valid until its own expiry.
 
-All task endpoints now require the `Authorization` header with your JWT token:
+### Get current user info
 
 ```bash
-# Get your lists
-curl http://localhost:3000/api/lists \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+curl -s http://localhost:3500/auth/me \
+  -H "Authorization: Bearer <token>" | jq .
+```
 
-# Get tasks from a list
-curl "http://localhost:3000/api/lists/LIST_ID/tasks" \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+---
+
+## Using the Task API
+
+All task endpoints require the `Authorization: Bearer <token>` header. The `?provider=` query parameter selects which task service to use.
+
+### Lists
+
+```bash
+# Get all lists
+curl -s "http://localhost:3500/api/lists?provider=microsoft" \
+  -H "Authorization: Bearer <token>" | jq .
+
+# Get task counts for all lists (single call)
+curl -s "http://localhost:3500/api/lists/counts?provider=microsoft" \
+  -H "Authorization: Bearer <token>" | jq .
+```
+
+### Tasks — full CRUD
+
+```bash
+# Get all tasks in a list
+curl -s "http://localhost:3500/api/lists/<listId>/tasks?provider=microsoft" \
+  -H "Authorization: Bearer <token>" | jq .
 
 # Create a task
-curl -X POST http://localhost:3000/api/lists/LIST_ID/tasks \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
+curl -s -X POST "http://localhost:3500/api/lists/<listId>/tasks?provider=microsoft" \
+  -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{
-    "name": "My task",
-    "notes": "Task details"
-  }'
+  -d '{"name": "Buy groceries", "notes": "Milk, eggs, bread", "dueDate": "2026-03-10"}' | jq .
 
-# Mark task complete
-curl -X PATCH "http://localhost:3000/api/lists/LIST_ID/tasks/TASK_ID/complete" \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+# Update a task (partial — only send fields you want to change)
+curl -s -X PATCH "http://localhost:3500/api/lists/<listId>/tasks/<taskId>?provider=microsoft" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Buy groceries and coffee", "dueDate": "2026-03-11"}' | jq .
+
+# Mark a task complete
+curl -s -X PATCH "http://localhost:3500/api/lists/<listId>/tasks/<taskId>/complete?provider=microsoft" \
+  -H "Authorization: Bearer <token>" | jq .
+
+# Delete a task
+curl -s -X DELETE "http://localhost:3500/api/lists/<listId>/tasks/<taskId>?provider=microsoft" \
+  -H "Authorization: Bearer <token>" | jq .
 ```
+
+---
 
 ## Provider Configuration (Per User)
 
-Each user can connect their own Microsoft Tasks and Google Tasks accounts.
+Each user connects their own provider accounts independently.
 
 ### Apple Reminders
 
-Apple Reminders works automatically - each user accesses their own local Reminders when logged into macOS.
+Apple Reminders works on macOS only and must be explicitly enabled:
 
-**Important:** If running on a server with multiple macOS user accounts, make sure each user runs the server under their own macOS account to access their personal Reminders.
-
-### Google Tasks (Per User)
-
-1. **Get the authorization URL:**
 ```bash
-curl http://localhost:3000/auth/google/url \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+# .env
+ENABLE_APPLE_PROVIDER=true
 ```
 
-2. **Open the URL in a browser** and authorize
+No OAuth required — the server accesses the Reminders app of the macOS user account running the server process.
 
-3. **You'll be redirected** with the credentials saved to your account
+### Microsoft Tasks (per user)
 
-4. **Use Google Tasks:**
 ```bash
-curl "http://localhost:3000/api/lists?provider=google" \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+# 1. Get the OAuth authorization URL
+curl -s http://localhost:3500/auth/microsoft/url \
+  -H "Authorization: Bearer <token>" | jq .authUrl
+
+# 2. Open the URL in a browser, sign in, and accept the permissions prompt.
+#    The server stores the tokens automatically after the redirect.
+
+# 3. Use Microsoft Tasks
+curl -s "http://localhost:3500/api/lists?provider=microsoft" \
+  -H "Authorization: Bearer <token>" | jq .
 ```
 
-### Microsoft Tasks (Per User)
+### Google Tasks (per user)
 
-1. **Get an access token** from Microsoft (use OAuth flow)
-
-2. **Store the token:**
 ```bash
-curl -X POST http://localhost:3000/auth/microsoft/token \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
+# 1. Get the OAuth authorization URL
+curl -s http://localhost:3500/auth/google/url \
+  -H "Authorization: Bearer <token>" | jq .authUrl
+
+# 2. Open the URL in a browser, sign in, and authorize.
+#    The server stores the tokens automatically after the redirect.
+
+# 3. Use Google Tasks
+curl -s "http://localhost:3500/api/lists?provider=google" \
+  -H "Authorization: Bearer <token>" | jq .
+```
+
+### Disconnect a provider
+
+```bash
+curl -s -X DELETE http://localhost:3500/auth/provider/google \
+  -H "Authorization: Bearer <token>" | jq .
+```
+
+### Set default provider
+
+```bash
+curl -s -X PATCH http://localhost:3500/auth/default-provider \
+  -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"accessToken": "MICROSOFT_ACCESS_TOKEN"}'
+  -d '{"provider": "microsoft"}' | jq .
 ```
 
-3. **Use Microsoft Tasks:**
-```bash
-curl "http://localhost:3000/api/lists?provider=microsoft" \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
-```
-
-### Disconnect a Provider
+### Check provider connection status
 
 ```bash
-curl -X DELETE http://localhost:3000/auth/provider/google \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+curl -s http://localhost:3500/auth/providers/status \
+  -H "Authorization: Bearer <token>" | jq .
 ```
 
-### Set Default Provider
+Returns a live validation result for each provider (cached 5 minutes).
 
-```bash
-curl -X PATCH http://localhost:3000/auth/default-provider \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
-  -H "Content-Type: application/json" \
-  -d '{"provider": "google"}'
-```
+---
 
 ## User Isolation
 
-### How it Works
+Each user's data is completely independent:
 
-1. **Apple Reminders:** Each user's token is tied to their macOS user account. The server executes AppleScript in the context of the user running the server, accessing their local Reminders.
+1. **Microsoft Tasks** — each user's tokens are stored in their own row in `user_credentials`, encrypted with AES-256-GCM. Only their requests use their tokens.
+2. **Google Tasks** — same as Microsoft.
+3. **Apple Reminders** — accesses the Reminders database of the macOS user running the server process. All server users share the same local Reminders.
 
-2. **Microsoft Tasks:** Each user's Microsoft access token is stored separately and used only for that user's requests.
+### Data storage
 
-3. **Google Tasks:** Each user's Google OAuth tokens are stored separately and used only for that user's requests.
+User data is stored in PostgreSQL:
 
-### Data Storage
+| Table | Contents |
+|---|---|
+| `users` | One row per account — username, bcrypt-hashed password, email, default provider, preferences |
+| `user_credentials` | One row per user per provider — access and refresh tokens, AES-256-GCM encrypted |
 
-User data is stored in JSON files in the `./data` directory:
-
-- `users.json` - User accounts (username, hashed password, email)
-- `user-credentials.json` - Provider credentials per user (access tokens, refresh tokens)
-
-**Important:** In production, use:
-- A proper database (PostgreSQL, MongoDB)
-- Encrypted storage for credentials
-- Proper session management (Redis)
+---
 
 ## Multi-User Scenarios
 
-### Scenario 1: Multiple Team Members
+### Multiple team members
 
 ```bash
-# Alice registers
-curl -X POST http://localhost:3000/auth/register \
+# Alice registers and gets her token
+ALICE_TOKEN=$(curl -s -X POST http://localhost:3500/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"username": "alice", "password": "alice123", "email": "alice@company.com"}'
+  -d '{"username":"alice","password":"alice123"}' | jq -r '.token')
 
-# Bob registers
-curl -X POST http://localhost:3000/auth/register \
+# Bob registers and gets his token
+BOB_TOKEN=$(curl -s -X POST http://localhost:3500/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"username": "bob", "password": "bob123", "email": "bob@company.com"}'
+  -d '{"username":"bob","password":"bob123"}' | jq -r '.token')
 
-# Alice gets her tasks (with her token)
-curl http://localhost:3000/api/lists \
-  -H "Authorization: Bearer ALICE_TOKEN"
+# Alice's lists — her providers only
+curl -s "http://localhost:3500/api/lists?provider=microsoft" \
+  -H "Authorization: Bearer $ALICE_TOKEN" | jq .
 
-# Bob gets his tasks (with his token) - completely separate from Alice
-curl http://localhost:3000/api/lists \
-  -H "Authorization: Bearer BOB_TOKEN"
+# Bob's lists — completely separate
+curl -s "http://localhost:3500/api/lists?provider=microsoft" \
+  -H "Authorization: Bearer $BOB_TOKEN" | jq .
 ```
 
-### Scenario 2: Same Mac, Different Users
-
-If Alice and Bob both use the same Mac:
-
-1. **Alice logs into macOS** and runs the server
-   - Alice's API calls access Alice's Reminders
-   
-2. **Bob logs into macOS** (different user account) and runs the server on a different port
-   - Bob's API calls access Bob's Reminders
-
-## Security Considerations
-
-### In Development:
-- File-based storage is fine
-- Self-signed JWT is fine
-
-### In Production:
-- ❗ Use a strong, random JWT secret (at least 32 characters)
-- ❗ Use HTTPS (TLS/SSL)
-- ❗ Use a proper database with encryption
-- ❗ Implement refresh token rotation
-- ❗ Add rate limiting
-- ❗ Implement token expiry and refresh
-- ❗ Add password reset functionality
-- ❗ Use environment-specific secrets management
-- ❗ Implement proper logging and monitoring
-- ❗ Add two-factor authentication for sensitive accounts
-
-## Testing Multiple Users
-
-Create a test script:
-
-```bash
-#!/bin/bash
-
-# Register Alice
-ALICE_TOKEN=$(curl -s -X POST http://localhost:3000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"test123"}' \
-  | jq -r '.token')
-
-# Register Bob
-BOB_TOKEN=$(curl -s -X POST http://localhost:3000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"bob","password":"test123"}' \
-  | jq -r '.token')
-
-echo "Alice's token: $ALICE_TOKEN"
-echo "Bob's token: $BOB_TOKEN"
-
-# Get Alice's lists
-echo "Alice's lists:"
-curl -s http://localhost:3000/api/lists \
-  -H "Authorization: Bearer $ALICE_TOKEN" | jq
-
-# Get Bob's lists  
-echo "Bob's lists:"
-curl -s http://localhost:3000/api/lists \
-  -H "Authorization: Bearer $BOB_TOKEN" | jq
-```
+---
 
 ## Troubleshooting
 
-### "Authentication required"
-- Make sure you're including the `Authorization: Bearer TOKEN` header
-- Check that your token hasn't expired (tokens last 7 days by default)
-- Login again to get a fresh token
+**"Authentication required"**
+Include the `Authorization: Bearer <token>` header. Check that the token has not expired (30 days).
 
-### "Username already exists"
-- Choose a different username
-- Or login with the existing credentials
+**"Invalid or expired token"**
+Log in again with `POST /auth/login` to get a fresh 30-day token. Use `POST /auth/refresh` proactively before expiry.
 
-### "Invalid or expired token"
-- Your token has expired (7 days)
-- Login again to get a new token
+**"Username already exists"**
+Choose a different username, or log in with the existing credentials.
 
-### Users seeing each other's tasks
-- This should never happen! Each user's credentials are isolated
-- Check that you're using the correct token for each user
-- Verify the server is running in multi-user mode
+**"Microsoft credentials not found"**
+The user has not completed the OAuth flow. Get the URL from `GET /auth/microsoft/url` and open it in a browser.
 
-## Migration from Single-User
+**"Google credentials not found"**
+Same as above — use `GET /auth/google/url`.
 
-If you have the single-user version running:
-
-1. Stop the single-user server
-2. Install new dependencies: `npm install`
-3. Update `.env` with JWT_SECRET
-4. Start multi-user server: `npm run start:multiuser`
-5. Register accounts for your users
-6. Each user authenticates and connects their providers
-
-The original single-user server (`npm start`) still works for testing!
+**Users seeing each other's tasks**
+This should not happen. Each user's credentials are in separate database rows and are only loaded for the authenticated user. Verify you are using the correct token for each user.
