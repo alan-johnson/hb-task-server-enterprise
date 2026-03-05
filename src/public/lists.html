@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Task Server — Lists</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="dashboard">
+  <div class="dashboard-container">
+
+    <div class="dashboard-header">
+      <div>
+        <h1>Task Lists</h1>
+        <div class="user-info" id="user-info">Loading…</div>
+      </div>
+      <div style="display:flex;gap:.5rem;align-items:center">
+        <a href="/dashboard.html" class="btn btn-secondary btn-sm">Dashboard</a>
+        <button class="btn btn-secondary btn-sm" onclick="logout()">Log Out</button>
+      </div>
+    </div>
+
+    <div id="banner" class="banner" style="display:none"></div>
+
+    <!-- Provider filter tabs -->
+    <div class="filter-bar" id="filter-bar">
+      <button class="filter-btn active" data-provider="all" onclick="setFilter('all')">All</button>
+    </div>
+
+    <!-- Lists grid -->
+    <div id="lists-container">
+      <div class="loading-state">
+        <div class="spinner"></div>
+        <div>Loading lists…</div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const token = localStorage.getItem('token');
+    if (!token) { window.location.href = '/'; }
+
+    const PROVIDERS = {
+      apple:     { label: 'Apple',     icon: '🍎', color: '#2e7d32', bg: '#e8f5e9' },
+      microsoft: { label: 'Microsoft', icon: '🟦', color: '#1565c0', bg: '#e3f2fd' },
+      google:    { label: 'Google',    icon: '🟥', color: '#b71c1c', bg: '#ffebee' }
+    };
+
+    let allLists = [];         // [{ provider, id, name, updated }]
+    let activeFilter = 'all';
+    let connectedProviders = [];
+
+    function authHeaders() {
+      return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+    }
+
+    function logout() {
+      localStorage.clear();
+      window.location.href = '/';
+    }
+
+    function showBanner(msg, type = 'success') {
+      const el = document.getElementById('banner');
+      el.textContent = msg;
+      el.className = `banner banner-${type}`;
+      el.style.display = 'block';
+      setTimeout(() => { el.style.display = 'none'; }, 6000);
+    }
+
+    function setFilter(provider) {
+      activeFilter = provider;
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.provider === provider);
+      });
+      renderLists();
+    }
+
+    function renderLists() {
+      const container = document.getElementById('lists-container');
+      const filtered = activeFilter === 'all'
+        ? allLists
+        : allLists.filter(l => l.provider === activeFilter);
+
+      if (filtered.length === 0) {
+        container.innerHTML = `<div class="empty-state">No lists found.</div>`;
+        return;
+      }
+
+      container.innerHTML = filtered.map(list => {
+        const p = PROVIDERS[list.provider] || { label: list.provider, icon: '📋', color: '#555', bg: '#f0f0f0' };
+        const updated = list.updated ? new Date(list.updated).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+        return `
+          <div class="list-card">
+            <div class="list-icon">${p.icon}</div>
+            <div class="list-info">
+              <div class="list-name">${escHtml(list.name)}</div>
+              ${updated ? `<div class="list-meta">Updated ${updated}</div>` : ''}
+            </div>
+            <span class="badge" style="background:${p.bg};color:${p.color}">${p.label}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function escHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    async function fetchListsForProvider(provider) {
+      const res = await fetch(`/api/lists?provider=${provider}`, { headers: authHeaders() });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data.lists || []).map(l => ({ ...l, provider }));
+    }
+
+    async function init() {
+      // Load user info
+      try {
+        const res = await fetch('/auth/me', { headers: authHeaders() });
+        if (res.status === 401) { logout(); return; }
+        const data = await res.json();
+        document.getElementById('user-info').textContent =
+          `Signed in as ${data.user.username}`;
+      } catch {
+        document.getElementById('user-info').textContent = '';
+      }
+
+      // Load provider status
+      let status = { apple: false, microsoft: false, google: false };
+      try {
+        const res = await fetch('/auth/providers/status', { headers: authHeaders() });
+        status = await res.json();
+      } catch { /* ignore */ }
+
+      connectedProviders = Object.entries(status)
+        .filter(([, connected]) => connected)
+        .map(([p]) => p);
+
+      // Build filter tabs
+      const filterBar = document.getElementById('filter-bar');
+      connectedProviders.forEach(p => {
+        const pr = PROVIDERS[p] || { label: p, icon: '📋' };
+        const btn = document.createElement('button');
+        btn.className = 'filter-btn';
+        btn.dataset.provider = p;
+        btn.onclick = () => setFilter(p);
+        btn.textContent = `${pr.icon} ${pr.label}`;
+        filterBar.appendChild(btn);
+      });
+
+      if (connectedProviders.length === 0) {
+        document.getElementById('lists-container').innerHTML =
+          `<div class="empty-state">No providers connected. <a href="/dashboard.html">Connect one on the Dashboard.</a></div>`;
+        return;
+      }
+
+      // Fetch lists from all connected providers in parallel
+      try {
+        const results = await Promise.all(connectedProviders.map(fetchListsForProvider));
+        allLists = results.flat();
+        renderLists();
+      } catch (err) {
+        showBanner('Failed to load lists: ' + err.message, 'error');
+        document.getElementById('lists-container').innerHTML =
+          `<div class="empty-state">Could not load lists.</div>`;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

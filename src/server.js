@@ -174,12 +174,21 @@ app.post('/auth/refresh', authService.requireAuth(), (req, res) => {
 });
 
 // Get connected provider status for the current user
+// Validates each token with a live API call rather than just checking storage.
 app.get('/auth/providers/status', authService.requireAuth(), async (req, res) => {
   const status = { apple: true }; // always available on macOS
-  for (const p of ['microsoft', 'google']) {
-    const creds = await userService.getCredentials(req.user.userId, p);
-    status[p] = !!creds;
-  }
+  await Promise.all(['microsoft', 'google'].map(async (p) => {
+    try {
+      const creds = await userService.getCredentials(req.user.userId, p);
+      if (!creds) { status[p] = false; return; }
+      const { provider } = getProviderForUser({ ...req, query: { provider: p }, body: {} });
+      await initializeProvider(provider, p, req.user.userId);
+      await provider.getLists();
+      status[p] = true;
+    } catch {
+      status[p] = false;
+    }
+  }));
   res.json(status);
 });
 
