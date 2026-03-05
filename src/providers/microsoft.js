@@ -122,6 +122,7 @@ class MicrosoftTasksProvider {
       name: task.title,
       completed: task.status === 'completed',
       importance: task.importance,
+      priority: task.importance || 'low',
       dueDate: task.dueDateTime?.dateTime,
       createdDate: task.createdDateTime,
       updated: task.lastModifiedDateTime,
@@ -144,6 +145,7 @@ class MicrosoftTasksProvider {
       name: task.title,
       completed: task.status === 'completed',
       importance: task.importance,
+      priority: task.importance || 'low',
       dueDate: task.dueDateTime?.dateTime,
       createdDate: task.createdDateTime,
       lastModified: task.lastModifiedDateTime,
@@ -191,6 +193,7 @@ class MicrosoftTasksProvider {
     if (taskData.notes !== undefined)  patch.body = { content: taskData.notes || '', contentType: 'text' };
     if (taskData.dueDate)              patch.dueDateTime = { dateTime: `${taskData.dueDate}T00:00:00.000000`, timeZone: 'UTC' };
     else if (taskData.dueDate === null) patch.dueDateTime = null;
+    if (taskData.priority !== undefined) patch.importance = taskData.priority === 'none' ? 'low' : taskData.priority;
 
     await this.client.api(`/me/todo/lists/${listId}/tasks/${taskId}`).patch(patch);
     return { success: true, message: 'Task updated' };
@@ -227,9 +230,9 @@ class MicrosoftTasksProvider {
       };
     }
 
-    if (taskData.importance) {
-      taskPayload.importance = taskData.importance;
-    }
+    taskPayload.importance = taskData.priority === 'high' ? 'high'
+      : taskData.priority === 'normal' ? 'normal'
+      : taskData.importance || 'low';
 
     const task = await this.client
       .api(`/me/todo/lists/${listId}/tasks`)

@@ -20,6 +20,12 @@
         <a href="/settings.html" class="btn btn-secondary btn-sm">Settings</a>
         <button class="btn btn-secondary btn-sm" onclick="logout()">Log Out</button>
       </div>
+      <div class="filter-bar" id="filter-bar">
+        <button class="filter-btn filter-btn-active" data-filter="all"    onclick="setFilter('all')">All</button>
+        <button class="filter-btn" data-filter="Now"     onclick="setFilter('Now')">Now</button>
+        <button class="filter-btn" data-filter="Not Now" onclick="setFilter('Not Now')">Not Now</button>
+        <button class="filter-btn" data-filter="Later"   onclick="setFilter('Later')">Later</button>
+      </div>
     </div>
 
     <div id="banner" class="banner" style="display:none"></div>
@@ -48,6 +54,14 @@
       <div class="form-group">
         <label for="modal-due">Due Date</label>
         <input id="modal-due" type="date">
+      </div>
+      <div class="form-group" id="priority-group">
+        <label for="modal-priority">Priority</label>
+        <select id="modal-priority">
+          <option value="low">Low (default)</option>
+          <option value="normal">Normal</option>
+          <option value="high">High</option>
+        </select>
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
@@ -92,6 +106,12 @@
     let showCompleted  = false;
     let editingTaskId  = null;
     let deletingTaskId = null;
+    let activeFilter   = 'all';
+
+    // Hide priority selector for Google (no priority field)
+    if (provider === 'google') {
+      document.getElementById('priority-group').style.display = 'none';
+    }
 
     // ── Helpers ────────────────────────────────────────────────
 
@@ -132,22 +152,81 @@
 
     function taskById(id) { return tasksData.find(t => t.id === id); }
 
+    // ── Priority classification ─────────────────────────────────
+
+    function classifyTask(task) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      let dueDate = null;
+      if (task.dueDate) {
+        const m = task.dueDate.match(/(\d{4})-(\d{2})-(\d{2})/);
+        if (m) {
+          dueDate = new Date(+m[1], +m[2] - 1, +m[3]);
+        } else {
+          const d = new Date(task.dueDate);
+          if (!isNaN(d)) { dueDate = new Date(d); dueDate.setHours(0, 0, 0, 0); }
+        }
+      }
+
+      const priority = task.priority || 'low';
+      const isUrgent    = dueDate && dueDate <= today;
+      const hasFutureDue = dueDate && dueDate > today;
+
+      if (isUrgent || priority === 'high')             return 'Now';
+      if (hasFutureDue || priority === 'normal')        return 'Not Now';
+      return 'Later';
+    }
+
+    function setFilter(filter) {
+      activeFilter = filter;
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('filter-btn-active', btn.dataset.filter === filter);
+      });
+      const shown = showCompleted ? tasksData : tasksData.filter(t => !t.completed);
+      renderTasks(shown);
+    }
+
     // ── Render ─────────────────────────────────────────────────
 
     function renderTasks(tasks) {
       const container = document.getElementById('tasks-container');
 
-      if (!tasks.length) {
-        container.innerHTML = `<div class="empty-state">No tasks in this list.<br><a href="#" onclick="openCreateModal();return false;">Add the first task.</a></div>`;
-        return;
-      }
-
       const incomplete = tasks.filter(t => !t.completed);
       const completed  = tasks.filter(t =>  t.completed);
 
+      // Apply filter
+      const filtered = activeFilter === 'all'
+        ? incomplete
+        : incomplete.filter(t => classifyTask(t) === activeFilter);
+
+      const showingAll = activeFilter === 'all';
+
+      if (!filtered.length && !(showingAll && completed.length)) {
+        const msg = showingAll
+          ? `No tasks in this list.<br><a href="#" onclick="openCreateModal();return false;">Add the first task.</a>`
+          : `No <strong>${activeFilter}</strong> tasks.`;
+        container.innerHTML = `<div class="empty-state">${msg}</div>`;
+        return;
+      }
+
       let html = '';
-      if (incomplete.length) html += incomplete.map(t => taskCard(t)).join('');
-      if (completed.length) {
+
+      if (showingAll && filtered.length) {
+        // Group incomplete tasks by classification tag
+        const groups = { 'Now': [], 'Not Now': [], 'Later': [] };
+        for (const t of filtered) groups[classifyTask(t)].push(t);
+        for (const [label, items] of Object.entries(groups)) {
+          if (!items.length) continue;
+          html += `<div class="tasks-section-label tag-section-${label.replace(' ', '-').toLowerCase()}">${label} (${items.length})</div>`;
+          html += items.map(t => taskCard(t)).join('');
+        }
+      } else {
+        html += filtered.map(t => taskCard(t)).join('');
+      }
+
+      // Completed tasks are only shown in the "All" view — they have no classification
+      if (showingAll && completed.length) {
         html += `<div class="tasks-section-label">Completed (${completed.length})</div>`;
         html += completed.map(t => taskCard(t)).join('');
       }
@@ -157,6 +236,8 @@
 
     function taskCard(task) {
       const done    = task.completed;
+      const tag     = done ? null : classifyTask(task);
+      const tagPill = tag ? `<span class="tag-pill tag-pill-${tag.replace(' ', '-').toLowerCase()}">${tag}</span>` : '';
       const due     = task.dueDate ? `<span class="task-due">Due ${formatDate(task.dueDate)}</span>` : '';
       const updated = task.updated ? `<span class="task-due">Updated ${formatDate(task.updated)}</span>` : '';
       const notes   = task.notes   ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
@@ -167,11 +248,11 @@
         : `<button class="task-check task-check-btn" title="Mark complete" onclick="completeTask('${escHtml(task.id)}')">○</button>`;
 
       return `
-        <div class="task-card${done ? ' task-card-done' : ''}" data-task-id="${escHtml(task.id)}">
+        <div class="task-card${done ? ' task-card-done' : ''}${tag ? ` task-card-${tag.replace(' ', '-').toLowerCase()}` : ''}" data-task-id="${escHtml(task.id)}">
           ${completeBtn}
           <div class="task-body${hasDetails ? ' task-body-expandable' : ''}"
                ${hasDetails ? `onclick="toggleExpand(this)"` : ''}>
-            <div class="task-name${done ? ' task-name-done' : ''}">${escHtml(task.name)}</div>
+            <div class="task-name${done ? ' task-name-done' : ''}">${tagPill}${escHtml(task.name)}</div>
             ${hasDetails ? `
             <div class="task-details">
               ${due}${updated}${notes}
@@ -215,9 +296,10 @@
       editingTaskId = null;
       document.getElementById('modal-title').textContent  = 'New Task';
       document.getElementById('modal-submit').textContent = 'Create Task';
-      document.getElementById('modal-name').value  = '';
-      document.getElementById('modal-notes').value = '';
-      document.getElementById('modal-due').value   = '';
+      document.getElementById('modal-name').value     = '';
+      document.getElementById('modal-notes').value    = '';
+      document.getElementById('modal-due').value      = '';
+      document.getElementById('modal-priority').value = 'low';
       document.getElementById('task-modal').style.display = 'flex';
       document.getElementById('modal-name').focus();
     }
@@ -228,9 +310,10 @@
       editingTaskId = taskId;
       document.getElementById('modal-title').textContent  = 'Edit Task';
       document.getElementById('modal-submit').textContent = 'Save Changes';
-      document.getElementById('modal-name').value  = task.name  || '';
-      document.getElementById('modal-notes').value = task.notes || '';
-      document.getElementById('modal-due').value   = toInputDate(task.dueDate);
+      document.getElementById('modal-name').value     = task.name  || '';
+      document.getElementById('modal-notes').value    = task.notes || '';
+      document.getElementById('modal-due').value      = toInputDate(task.dueDate);
+      document.getElementById('modal-priority').value = task.priority || 'low';
       document.getElementById('task-modal').style.display = 'flex';
       document.getElementById('modal-name').focus();
     }
@@ -245,9 +328,10 @@
     }
 
     async function submitModal() {
-      const name  = document.getElementById('modal-name').value.trim();
-      const notes = document.getElementById('modal-notes').value.trim();
-      const due   = document.getElementById('modal-due').value;
+      const name     = document.getElementById('modal-name').value.trim();
+      const notes    = document.getElementById('modal-notes').value.trim();
+      const due      = document.getElementById('modal-due').value;
+      const priority = document.getElementById('modal-priority').value;
 
       if (!name) {
         document.getElementById('modal-name').focus();
@@ -260,8 +344,9 @@
       submitBtn.textContent = 'Saving…';
 
       const body = { name };
-      if (notes) body.notes   = notes;
-      if (due)   body.dueDate = due;
+      if (notes)    body.notes    = notes;
+      if (due)      body.dueDate  = due;
+      if (provider !== 'google') body.priority = priority;
 
       try {
         if (editingTaskId) {
@@ -360,6 +445,10 @@
         tasksData   = data.tasks || [];
         const shown = showCompleted ? tasksData : tasksData.filter(t => !t.completed);
         renderTasks(shown);
+        // Restore filter button active state after re-render
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+          btn.classList.toggle('filter-btn-active', btn.dataset.filter === activeFilter);
+        });
       } catch (err) {
         showBanner(err.message, 'error');
         document.getElementById('tasks-container').innerHTML =
