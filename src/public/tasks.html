@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Task Server — Tasks</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="dashboard">
+  <div class="dashboard-container">
+
+    <div class="dashboard-header">
+      <div>
+        <h1 id="page-title">Tasks</h1>
+        <div class="user-info" id="user-info">Loading…</div>
+      </div>
+      <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+        <a href="/lists.html" class="btn btn-secondary btn-sm">All Lists</a>
+        <a href="/settings.html" class="btn btn-secondary btn-sm">Settings</a>
+        <button class="btn btn-secondary btn-sm" onclick="logout()">Log Out</button>
+      </div>
+    </div>
+
+    <div id="banner" class="banner" style="display:none"></div>
+
+    <div id="tasks-container">
+      <div class="loading-state">
+        <div class="spinner"></div>
+        <div>Loading tasks…</div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const token = localStorage.getItem('token');
+    if (!token) { window.location.href = '/'; }
+
+    const params = new URLSearchParams(window.location.search);
+    const provider  = params.get('provider')  || 'apple';
+    const listId    = params.get('listId')    || '';
+    const listName  = params.get('listName')  || 'Tasks';
+
+    const PROVIDERS = {
+      apple:     { label: 'Apple',     icon: '🍎', color: '#2e7d32', bg: '#e8f5e9' },
+      microsoft: { label: 'Microsoft', icon: '🟦', color: '#1565c0', bg: '#e3f2fd' },
+      google:    { label: 'Google',    icon: '🟥', color: '#b71c1c', bg: '#ffebee' }
+    };
+
+    document.getElementById('page-title').textContent = listName;
+    const p = PROVIDERS[provider] || { label: provider, icon: '📋' };
+    document.title = `${listName} — Task Server`;
+
+    function authHeaders() {
+      return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+    }
+
+    function logout() {
+      localStorage.clear();
+      window.location.href = '/';
+    }
+
+    function showBanner(msg, type = 'success') {
+      const el = document.getElementById('banner');
+      el.textContent = msg;
+      el.className = `banner banner-${type}`;
+      el.style.display = 'block';
+      setTimeout(() => { el.style.display = 'none'; }, 6000);
+    }
+
+    function escHtml(str) {
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function formatDate(iso) {
+      if (!iso) return '';
+      return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function renderTasks(tasks) {
+      const container = document.getElementById('tasks-container');
+
+      if (!tasks.length) {
+        container.innerHTML = `<div class="empty-state">No tasks in this list.</div>`;
+        return;
+      }
+
+      const incomplete = tasks.filter(t => !t.completed);
+      const completed  = tasks.filter(t =>  t.completed);
+
+      let html = '';
+
+      if (incomplete.length) {
+        html += incomplete.map(t => taskCard(t, false)).join('');
+      }
+
+      if (completed.length) {
+        html += `<div class="tasks-section-label">Completed (${completed.length})</div>`;
+        html += completed.map(t => taskCard(t, true)).join('');
+      }
+
+      container.innerHTML = html;
+    }
+
+    function taskCard(task, done) {
+      const due   = task.dueDate ? `<span class="task-due">Due ${formatDate(task.dueDate)}</span>` : '';
+      const notes = task.notes   ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
+      return `
+        <div class="task-card${done ? ' task-card-done' : ''}">
+          <div class="task-check">${done ? '✓' : ''}</div>
+          <div class="task-body">
+            <div class="task-name${done ? ' task-name-done' : ''}">${escHtml(task.name)}</div>
+            ${due || notes ? `<div class="task-meta">${due}${notes}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    async function init() {
+      if (!listId) {
+        document.getElementById('tasks-container').innerHTML =
+          `<div class="empty-state">No list selected. <a href="/lists.html">Go back to lists.</a></div>`;
+        return;
+      }
+
+      try {
+        const res = await fetch('/auth/me', { headers: authHeaders() });
+        if (res.status === 401) { logout(); return; }
+        const data = await res.json();
+        document.getElementById('user-info').textContent =
+          `${p.icon} ${p.label} · Signed in as ${data.user.username}`;
+      } catch {
+        document.getElementById('user-info').textContent = '';
+      }
+
+      try {
+        const res = await fetch(
+          `/api/lists/${encodeURIComponent(listId)}/tasks?provider=${encodeURIComponent(provider)}`,
+          { headers: authHeaders() }
+        );
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'Failed to load tasks');
+        }
+        const data = await res.json();
+        renderTasks(data.tasks || []);
+      } catch (err) {
+        showBanner(err.message, 'error');
+        document.getElementById('tasks-container').innerHTML =
+          `<div class="empty-state">Could not load tasks.</div>`;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

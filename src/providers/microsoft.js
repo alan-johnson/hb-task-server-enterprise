@@ -150,6 +150,21 @@ class MicrosoftTasksProvider {
     return { success: true, message: 'Task marked as complete' };
   }
 
+  // Get task counts for all lists in parallel
+  async getListCounts() {
+    const lists = await this.getLists();
+    const counts = {};
+    await Promise.all(lists.map(async (list) => {
+      try {
+        const tasks = await this.getTasks(list.id);
+        counts[list.id] = tasks.length;
+      } catch {
+        counts[list.id] = 0;
+      }
+    }));
+    return counts;
+  }
+
   // Create a new task
   async createTask(listId, taskData) {
     if (!this.client) {
