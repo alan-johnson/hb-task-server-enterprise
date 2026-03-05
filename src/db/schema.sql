@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS show_completed BOOLEAN NOT NULL DEFAULT FALSE;
+
 CREATE TABLE IF NOT EXISTS user_credentials (
     user_id       TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     provider      TEXT NOT NULL,

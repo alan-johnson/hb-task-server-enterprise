@@ -381,6 +381,47 @@ body.dashboard {
   margin-top: .1rem;
 }
 
+/* ── Toggle switch ── */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 26px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.toggle-track {
+  position: absolute;
+  inset: 0;
+  background: #d2d2d7;
+  border-radius: 26px;
+  transition: background .2s;
+}
+
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  left: 3px;
+  top: 3px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0,0,0,.2);
+  transition: transform .2s;
+}
+
+.toggle-switch input:checked + .toggle-track { background: #34c759; }
+.toggle-switch input:checked + .toggle-track::after { transform: translateX(18px); }
+
 @media (max-width: 480px) {
   .list-card { padding: .875rem 1rem; }
   .list-icon { font-size: 1.25rem; }

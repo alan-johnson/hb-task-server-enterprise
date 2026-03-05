@@ -384,6 +384,21 @@ app.delete('/auth/provider/:provider', authService.requireAuth(), async (req, re
   }
 });
 
+// Update user preferences
+app.patch('/auth/preferences', authService.requireAuth(), async (req, res) => {
+  try {
+    const { showCompleted } = req.body;
+    if (typeof showCompleted !== 'boolean') {
+      return res.status(400).json({ error: 'showCompleted must be a boolean' });
+    }
+    await userService.updatePreferences(req.user.userId, { showCompleted });
+    cache.deletePrefix(`counts:${req.user.userId}:`);
+    res.json({ success: true, showCompleted });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Update default provider
 app.patch('/auth/default-provider', authService.requireAuth(), async (req, res) => {
   try {
@@ -431,12 +446,14 @@ app.get('/api/lists', authService.requireAuth(), async (req, res) => {
 app.get('/api/lists/counts', authService.requireAuth(), async (req, res) => {
   try {
     const { provider, providerName } = getProviderForUser(req);
-    const cacheKey = `counts:${req.user.userId}:${providerName}`;
+    const user = await userService.getUser(req.user.userId);
+    const onlyIncomplete = !user?.showCompleted;
+    const cacheKey = `counts:${req.user.userId}:${providerName}:${onlyIncomplete}`;
     const cached = cache.get(cacheKey);
     if (cached) return res.json(cached);
 
     await initializeProvider(provider, providerName, req.user.userId);
-    const counts = await provider.getListCounts();
+    const counts = await provider.getListCounts(onlyIncomplete);
     const result = { provider: providerName, counts };
     cache.set(cacheKey, result, TTL.counts);
     res.json(result);
