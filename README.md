@@ -4,12 +4,14 @@ A multi-user REST API server that integrates with Apple Reminders, Microsoft Tas
 
 ## Features
 
-- **Apple Reminders** — Native macOS integration via AppleScript
+- **Apple Reminders** — Native macOS integration via AppleScript (opt-in, local deployments only)
 - **Microsoft Tasks** — Microsoft Graph API
 - **Google Tasks** — Google Tasks API
 - **Multi-user** — JWT authentication with complete per-user data isolation
+- **Web UI** — Built-in browser dashboard for managing lists, tasks, and provider connections
 - **PostgreSQL** — Persistent storage with encrypted OAuth token storage (AES-256-GCM)
 - **Redis** — Optional shared cache for multi-instance deployments (falls back to Postgres if not configured)
+- **In-memory cache** — Per-server TTL cache (provider status: 5 min, lists: 2 min, task counts: 2 min, tasks: 30 sec)
 
 ## Prerequisites
 
@@ -64,6 +66,12 @@ ENCRYPTION_KEY=<generated-hex-key>
 
 JWT_SECRET=<long-random-string>
 
+# Default task provider shown in the web UI (microsoft or google)
+DEFAULT_PROVIDER=microsoft
+
+# Apple Reminders — only enable when running locally on macOS
+ENABLE_APPLE_PROVIDER=false
+
 # Optional: enable Redis for multi-instance deployments
 # REDIS_URL=redis://localhost:6379
 ```
@@ -77,9 +85,12 @@ npm start
 On first boot the server applies the database schema automatically. You should see:
 
 ```
+User service initialized
 UserService: connected to PostgreSQL
-Server running on port 3500
+🚀 Multi-User Task Server running on http://localhost:3500
 ```
+
+Open `http://localhost:3500` in a browser to access the web dashboard.
 
 For development with auto-reload:
 
@@ -158,9 +169,16 @@ Press `Ctrl+C` in the terminal running `npm start`.
 
 #### Apple Reminders
 
-No configuration needed. Works automatically on macOS via AppleScript.
+Apple Reminders is **disabled by default**. Enable it only when running locally on macOS:
 
-The first time you run the server, macOS may prompt you to grant Terminal access to Reminders. Click OK.
+```bash
+# .env
+ENABLE_APPLE_PROVIDER=true
+```
+
+The first time you run the server with Apple enabled, macOS may prompt you to grant Terminal access to Reminders. Click OK.
+
+> Apple Reminders is not suitable for cloud/server deployments — it reads the Reminders database of the macOS user running the server process.
 
 #### Microsoft Tasks
 
@@ -283,6 +301,7 @@ App launch
 | `POST` | `/auth/login` | No | Log in, receive a token |
 | `POST` | `/auth/refresh` | Yes | Issue a new token from a valid existing token |
 | `GET` | `/auth/me` | Yes | Get current user info |
+| `GET` | `/auth/providers/status` | Yes | Live connection check for all providers (cached 5 min) |
 | `GET` | `/auth/microsoft/url` | Yes | Get Microsoft OAuth URL |
 | `GET` | `/auth/microsoft/callback` | — | Microsoft OAuth callback |
 | `POST` | `/auth/microsoft/token` | Yes | Store Microsoft token manually (fallback) |
@@ -290,18 +309,55 @@ App launch
 | `GET` | `/auth/google/callback` | — | Google OAuth callback |
 | `DELETE` | `/auth/provider/:provider` | Yes | Disconnect a provider |
 | `PATCH` | `/auth/default-provider` | Yes | Set default provider |
+| `PATCH` | `/auth/preferences` | Yes | Update user preferences |
+
+#### `PATCH /auth/preferences`
+
+Update per-user display preferences.
+
+```json
+{ "showCompleted": true }
+```
+
+Response:
+```json
+{ "success": true, "showCompleted": true }
+```
+
+When `showCompleted` is `false` (the default), completed tasks are excluded from task counts returned by `/api/lists/counts`.
 
 ### Task endpoints
 
-All task endpoints require authentication. The provider used is determined by the authenticated user's `defaultProvider` setting (or their connected credentials).
+All task endpoints require authentication. The provider is selected by the `?provider=` query parameter, falling back to the user's `defaultProvider`.
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/lists` | Get all task lists |
+| `GET` | `/api/lists/counts` | Get task counts for all lists (single call) |
 | `GET` | `/api/lists/:listId/tasks` | Get tasks in a list |
 | `GET` | `/api/lists/:listId/tasks/:taskId` | Get task details |
 | `POST` | `/api/lists/:listId/tasks` | Create a task |
 | `PATCH` | `/api/lists/:listId/tasks/:taskId/complete` | Mark task complete |
+
+#### `GET /api/lists/counts`
+
+Returns the number of tasks per list in a single API call, respecting the user's `showCompleted` preference.
+
+```bash
+curl -s "http://localhost:3500/api/lists/counts?provider=microsoft" \
+  -H "Authorization: Bearer <token>" | jq .
+```
+
+Response:
+```json
+{
+  "provider": "microsoft",
+  "counts": {
+    "<listId-1>": 3,
+    "<listId-2>": 12
+  }
+}
+```
 
 ### Other
 
@@ -309,6 +365,8 @@ All task endpoints require authentication. The provider used is determined by th
 |--------|------|-------------|
 | `GET` | `/health` | Health check |
 | `GET` | `/api/providers` | List available providers |
+| `GET` | `/privacy` | Privacy policy page |
+| `GET` | `/terms` | Terms of service page |
 
 ---
 
@@ -389,10 +447,17 @@ hb-task-server-enterprise/
 │   │   ├── db.js               # pg connection pool + AES-256-GCM encryption helpers
 │   │   ├── cache.js            # ioredis wrapper (no-ops if REDIS_URL not set)
 │   │   └── schema.sql          # Database schema (applied automatically on startup)
-│   └── providers/
-│       ├── apple.js            # Apple Reminders via AppleScript
-│       ├── microsoft.js        # Microsoft Graph API
-│       └── google.js           # Google Tasks API
+│   ├── providers/
+│   │   ├── apple.js            # Apple Reminders via AppleScript
+│   │   ├── microsoft.js        # Microsoft Graph API
+│   │   └── google.js           # Google Tasks API
+│   └── public/                 # Web UI (served as static files)
+│       ├── index.html          # Login page
+│       ├── settings.html       # Provider connections and preferences
+│       ├── lists.html          # Task lists view
+│       ├── tasks.html          # Tasks view
+│       ├── privacy.html        # Privacy policy
+│       └── terms.html          # Terms of service
 ├── startdb.sh                  # Start PostgreSQL (macOS/Homebrew)
 ├── .env.example
 └── package.json
@@ -410,6 +475,7 @@ hb-task-server-enterprise/
 | `password_hash` | TEXT | bcrypt, 10 rounds |
 | `created_at` | TIMESTAMPTZ | |
 | `default_provider` | TEXT | `apple`, `microsoft`, or `google` |
+| `show_completed` | BOOLEAN | Default `false` — include completed tasks in counts |
 
 **`user_credentials`** — OAuth tokens per user per provider
 
@@ -430,6 +496,9 @@ Homebrew PostgreSQL uses your macOS username as the superuser. Set `DATABASE_URL
 
 **`ENCRYPTION_KEY must be a 64-character hex string`**
 Generate a valid key: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+
+**Apple Reminders: "Apple Reminders provider is not enabled on this server."**
+Add `ENABLE_APPLE_PROVIDER=true` to `.env` and restart the server. This is intentionally disabled by default.
 
 **Apple Reminders: "Not authorized"**
 Go to System Settings > Privacy & Security > Automation and grant Terminal access to Reminders.
