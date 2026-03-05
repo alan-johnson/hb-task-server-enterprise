@@ -18,13 +18,24 @@
         <button class="btn btn-primary btn-sm" onclick="openCreateModal()">+ New Task</button>
         <a href="/lists.html" class="btn btn-secondary btn-sm">All Lists</a>
         <a href="/settings.html" class="btn btn-secondary btn-sm">Settings</a>
+        <div class="filter-dropdown-wrap" id="filter-dropdown-wrap">
+          <button class="btn btn-secondary btn-sm filter-icon-btn" id="filter-icon-btn"
+                  onclick="toggleFilterDropdown()" title="Filter tasks" aria-haspopup="true" aria-expanded="false">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <line x1="2" y1="4"  x2="14" y2="4"  stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <line x1="4" y1="8"  x2="12" y2="8"  stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <line x1="6" y1="12" x2="10" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <span id="filter-label">All</span>
+          </button>
+          <div class="filter-dropdown" id="filter-dropdown" role="menu">
+            <button class="filter-option filter-option-active" data-filter="all"     onclick="setFilter('all')"    role="menuitem">All</button>
+            <button class="filter-option"                      data-filter="Now"     onclick="setFilter('Now')"    role="menuitem">Now</button>
+            <button class="filter-option"                      data-filter="Not Now" onclick="setFilter('Not Now')"role="menuitem">Not Now</button>
+            <button class="filter-option"                      data-filter="Later"   onclick="setFilter('Later')"  role="menuitem">Later</button>
+          </div>
+        </div>
         <button class="btn btn-secondary btn-sm" onclick="logout()">Log Out</button>
-      </div>
-      <div class="filter-bar" id="filter-bar">
-        <button class="filter-btn filter-btn-active" data-filter="all"    onclick="setFilter('all')">All</button>
-        <button class="filter-btn" data-filter="Now"     onclick="setFilter('Now')">Now</button>
-        <button class="filter-btn" data-filter="Not Now" onclick="setFilter('Not Now')">Not Now</button>
-        <button class="filter-btn" data-filter="Later"   onclick="setFilter('Later')">Later</button>
       </div>
     </div>
 
@@ -178,11 +189,37 @@
       return 'Later';
     }
 
+    function toggleFilterDropdown() {
+      const wrap = document.getElementById('filter-dropdown-wrap');
+      const btn  = document.getElementById('filter-icon-btn');
+      const open = wrap.classList.toggle('filter-dropdown-open');
+      btn.setAttribute('aria-expanded', open);
+    }
+
+    function closeFilterDropdown() {
+      document.getElementById('filter-dropdown-wrap').classList.remove('filter-dropdown-open');
+      document.getElementById('filter-icon-btn').setAttribute('aria-expanded', false);
+    }
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', e => {
+      if (!document.getElementById('filter-dropdown-wrap').contains(e.target)) {
+        closeFilterDropdown();
+      }
+    });
+
     function setFilter(filter) {
       activeFilter = filter;
-      document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.classList.toggle('filter-btn-active', btn.dataset.filter === filter);
+      // Update dropdown option active state
+      document.querySelectorAll('.filter-option').forEach(btn => {
+        btn.classList.toggle('filter-option-active', btn.dataset.filter === filter);
       });
+      // Update icon button label
+      const labels = { all: 'All', 'Now': 'Now', 'Not Now': 'Not Now', 'Later': 'Later' };
+      document.getElementById('filter-label').textContent = labels[filter] || filter;
+      // Highlight icon button when a non-default filter is active
+      document.getElementById('filter-icon-btn').classList.toggle('filter-icon-btn-active', filter !== 'all');
+      closeFilterDropdown();
       const shown = showCompleted ? tasksData : tasksData.filter(t => !t.completed);
       renderTasks(shown);
     }
@@ -424,6 +461,7 @@
       if (e.key === 'Escape') {
         closeModal();
         closeDeleteModal();
+        closeFilterDropdown();
       }
       if ((e.key === 'Enter') && document.getElementById('task-modal').style.display !== 'none') {
         if (e.target.tagName !== 'TEXTAREA') { e.preventDefault(); submitModal(); }
@@ -445,10 +483,6 @@
         tasksData   = data.tasks || [];
         const shown = showCompleted ? tasksData : tasksData.filter(t => !t.completed);
         renderTasks(shown);
-        // Restore filter button active state after re-render
-        document.querySelectorAll('.filter-btn').forEach(btn => {
-          btn.classList.toggle('filter-btn-active', btn.dataset.filter === activeFilter);
-        });
       } catch (err) {
         showBanner(err.message, 'error');
         document.getElementById('tasks-container').innerHTML =

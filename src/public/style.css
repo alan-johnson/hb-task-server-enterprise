@@ -570,6 +570,59 @@ body.dashboard {
 
 .modal-box textarea:focus { border-color: #0071e3; }
 
+/* ── Filter dropdown (tasks page) ── */
+.filter-dropdown-wrap {
+  position: relative;
+}
+
+.filter-icon-btn {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+}
+
+.filter-icon-btn-active {
+  background: #e8f0fe;
+  border-color: #0071e3;
+  color: #0071e3;
+}
+
+.filter-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + .35rem);
+  right: 0;
+  background: #fff;
+  border: 1px solid #d2d2d7;
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.13);
+  min-width: 130px;
+  z-index: 100;
+  overflow: hidden;
+}
+
+.filter-dropdown-open .filter-dropdown { display: block; }
+
+.filter-option {
+  display: block;
+  width: 100%;
+  padding: .6rem 1rem;
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: .9rem;
+  color: #1d1d1f;
+  cursor: pointer;
+  transition: background .12s;
+}
+
+.filter-option:hover { background: #f5f5f7; }
+
+.filter-option-active {
+  font-weight: 600;
+  color: #0071e3;
+}
+
 /* ── Tag pills ── */
 .tag-pill {
   display: inline-block;
