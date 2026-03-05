@@ -151,13 +151,13 @@ class MicrosoftTasksProvider {
   }
 
   // Get task counts for all lists in parallel
-  async getListCounts() {
+  async getListCounts(onlyIncomplete = false) {
     const lists = await this.getLists();
     const counts = {};
     await Promise.all(lists.map(async (list) => {
       try {
         const tasks = await this.getTasks(list.id);
-        counts[list.id] = tasks.length;
+        counts[list.id] = onlyIncomplete ? tasks.filter(t => !t.completed).length : tasks.length;
       } catch {
         counts[list.id] = 0;
       }

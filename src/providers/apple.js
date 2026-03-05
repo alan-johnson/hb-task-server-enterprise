@@ -41,12 +41,15 @@ class AppleRemindersProvider {
   }
 
   // Get task counts for all lists in a single AppleScript call
-  async getListCounts() {
+  async getListCounts(onlyIncomplete = false) {
+    const countExpr = onlyIncomplete
+      ? '(count of (reminders of aList whose completed is false))'
+      : '(count of reminders of aList)';
     const script = `
       tell application "Reminders"
         set output to ""
         repeat with aList in lists
-          set output to output & id of aList & "|" & (count of reminders of aList) & linefeed
+          set output to output & id of aList & "|" & ${countExpr} & linefeed
         end repeat
         return output
       end tell

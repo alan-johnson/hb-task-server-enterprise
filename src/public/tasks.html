@@ -123,12 +123,14 @@
         return;
       }
 
+      let showCompleted = false;
       try {
         const res = await fetch('/auth/me', { headers: authHeaders() });
         if (res.status === 401) { logout(); return; }
         const data = await res.json();
         document.getElementById('user-info').textContent =
           `${p.icon} ${p.label} · Signed in as ${data.user.username}`;
+        showCompleted = !!data.user.showCompleted;
       } catch {
         document.getElementById('user-info').textContent = '';
       }
@@ -143,7 +145,10 @@
           throw new Error(err.error || 'Failed to load tasks');
         }
         const data = await res.json();
-        renderTasks(data.tasks || []);
+        const tasks = showCompleted
+          ? (data.tasks || [])
+          : (data.tasks || []).filter(t => !t.completed);
+        renderTasks(tasks);
       } catch (err) {
         showBanner(err.message, 'error');
         document.getElementById('tasks-container').innerHTML =

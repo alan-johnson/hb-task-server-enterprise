@@ -35,7 +35,7 @@ class UserService {
       await pool.query(
         `INSERT INTO users (user_id, username, email, password_hash, created_at, default_provider)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId, username, email || null, hashedPassword, createdAt, 'apple']
+        [userId, username, email || null, hashedPassword, createdAt, 'microsoft']
       );
     } catch (err) {
       if (err.code === '23505') throw new Error('Username already exists');
@@ -74,11 +74,11 @@ class UserService {
     const cached = await cache.get(`user:id:${userId}`);
     if (cached) {
       const u = JSON.parse(cached);
-      return { userId: u.userId, username: u.username, email: u.email, defaultProvider: u.defaultProvider };
+      return { userId: u.userId, username: u.username, email: u.email, defaultProvider: u.defaultProvider, showCompleted: u.showCompleted };
     }
 
     const result = await pool.query(
-      'SELECT user_id, username, email, password_hash, created_at, default_provider FROM users WHERE user_id = $1',
+      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed FROM users WHERE user_id = $1',
       [userId]
     );
     if (!result.rows[0]) return null;
@@ -87,7 +87,7 @@ class UserService {
     await cache.set(`user:id:${userId}`,             JSON.stringify(user));
     await cache.set(`user:name:${user.username}`,    JSON.stringify(user));
 
-    return { userId: user.userId, username: user.username, email: user.email, defaultProvider: user.defaultProvider };
+    return { userId: user.userId, username: user.username, email: user.email, defaultProvider: user.defaultProvider, showCompleted: user.showCompleted };
   }
 
   // ---------- storeCredentials ----------
@@ -170,7 +170,7 @@ class UserService {
     if (cached) return JSON.parse(cached);
 
     const result = await pool.query(
-      'SELECT user_id, username, email, password_hash, created_at, default_provider FROM users WHERE username = $1',
+      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed FROM users WHERE username = $1',
       [username]
     );
     if (!result.rows[0]) return null;
@@ -181,6 +181,19 @@ class UserService {
     return user;
   }
 
+  async updatePreferences(userId, { showCompleted }) {
+    const result = await pool.query(
+      'UPDATE users SET show_completed = $2 WHERE user_id = $1 RETURNING username',
+      [userId, showCompleted]
+    );
+    if (result.rowCount > 0) {
+      const username = result.rows[0].username;
+      await cache.del(`user:id:${userId}`, `user:name:${username}`);
+      return true;
+    }
+    return false;
+  }
+
   _mapRow(row) {
     return {
       userId:          row.user_id,
@@ -189,6 +202,7 @@ class UserService {
       passwordHash:    row.password_hash,
       createdAt:       row.created_at.toISOString(),
       defaultProvider: row.default_provider,
+      showCompleted:   row.show_completed,
     };
   }
 }
