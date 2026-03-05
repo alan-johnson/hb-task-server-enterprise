@@ -13,6 +13,32 @@ const UserService = require('./auth/userService');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Simple in-memory TTL cache
+class SimpleCache {
+  constructor() { this.store = new Map(); }
+  get(key) {
+    const e = this.store.get(key);
+    if (!e || e.expires < Date.now()) { this.store.delete(key); return null; }
+    return e.value;
+  }
+  set(key, value, ttlMs) {
+    this.store.set(key, { value, expires: Date.now() + ttlMs });
+  }
+  delete(key) { this.store.delete(key); }
+  deletePrefix(prefix) {
+    for (const key of this.store.keys()) {
+      if (key.startsWith(prefix)) this.store.delete(key);
+    }
+  }
+}
+const cache = new SimpleCache();
+const TTL = {
+  status: 5 * 60 * 1000,   // 5 min — provider token validity
+  lists:  2 * 60 * 1000,   // 2 min — list metadata
+  counts: 2 * 60 * 1000,   // 2 min — task counts
+  tasks:  30 * 1000         // 30 sec — task detail
+};
+
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
@@ -174,18 +200,23 @@ app.post('/auth/refresh', authService.requireAuth(), (req, res) => {
 });
 
 // Get connected provider status for the current user
-// Validates each token with a live API call rather than just checking storage.
+// Validates each token with a live API call, cached for 5 minutes per user+provider.
 app.get('/auth/providers/status', authService.requireAuth(), async (req, res) => {
   const status = { apple: true }; // always available on macOS
   await Promise.all(['microsoft', 'google'].map(async (p) => {
+    const cacheKey = `status:${req.user.userId}:${p}`;
+    const cached = cache.get(cacheKey);
+    if (cached !== null) { status[p] = cached; return; }
     try {
       const creds = await userService.getCredentials(req.user.userId, p);
-      if (!creds) { status[p] = false; return; }
+      if (!creds) { cache.set(cacheKey, false, TTL.status); status[p] = false; return; }
       const { provider } = getProviderForUser({ ...req, query: { provider: p }, body: {} });
       await initializeProvider(provider, p, req.user.userId);
       await provider.getLists();
+      cache.set(cacheKey, true, TTL.status);
       status[p] = true;
     } catch {
+      cache.set(cacheKey, false, TTL.status);
       status[p] = false;
     }
   }));
@@ -245,8 +276,9 @@ app.get('/auth/google/callback', async (req, res) => {
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token
     });
-    
-    res.redirect('/dashboard.html?connected=google');
+    cache.delete(`status:${userId}:google`);
+
+    res.redirect('/settings.html?connected=google');
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -294,8 +326,9 @@ app.get('/auth/microsoft/callback', async (req, res) => {
       accessToken:  tokens.access_token,
       refreshToken: tokens.refresh_token || null,
     });
+    cache.delete(`status:${userId}:microsoft`);
 
-    res.redirect('/dashboard.html?connected=microsoft');
+    res.redirect('/settings.html?connected=microsoft');
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -313,8 +346,9 @@ app.post('/auth/microsoft/token', authService.requireAuth(), async (req, res) =>
     await userService.storeCredentials(req.user.userId, 'microsoft', {
       accessToken
     });
-    
-    res.json({ 
+    cache.delete(`status:${req.user.userId}:microsoft`);
+
+    res.json({
       success: true,
       message: 'Microsoft Tasks connected successfully',
       provider: 'microsoft'
@@ -329,11 +363,14 @@ app.delete('/auth/provider/:provider', authService.requireAuth(), async (req, re
   try {
     const { provider } = req.params;
     const removed = await userService.removeCredentials(req.user.userId, provider);
-    
+
     if (removed) {
-      res.json({ 
+      cache.deletePrefix(`status:${req.user.userId}:${provider}`);
+      cache.deletePrefix(`lists:${req.user.userId}:${provider}`);
+      cache.deletePrefix(`counts:${req.user.userId}:${provider}`);
+      res.json({
         success: true,
-        message: `${provider} disconnected successfully` 
+        message: `${provider} disconnected successfully`
       });
     } else {
       res.status(404).json({ error: 'Provider not connected' });
@@ -371,14 +408,33 @@ app.patch('/auth/default-provider', authService.requireAuth(), async (req, res) 
 app.get('/api/lists', authService.requireAuth(), async (req, res) => {
   try {
     const { provider, providerName } = getProviderForUser(req);
-    await initializeProvider(provider, providerName, req.user.userId);
+    const cacheKey = `lists:${req.user.userId}:${providerName}`;
+    const cached = cache.get(cacheKey);
+    if (cached) return res.json(cached);
 
+    await initializeProvider(provider, providerName, req.user.userId);
     const lists = await provider.getLists();
-    res.json({
-      provider: providerName,
-      user: req.user.username,
-      lists
-    });
+    const result = { provider: providerName, user: req.user.username, lists };
+    cache.set(cacheKey, result, TTL.lists);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get task counts for all lists of a provider in a single call
+app.get('/api/lists/counts', authService.requireAuth(), async (req, res) => {
+  try {
+    const { provider, providerName } = getProviderForUser(req);
+    const cacheKey = `counts:${req.user.userId}:${providerName}`;
+    const cached = cache.get(cacheKey);
+    if (cached) return res.json(cached);
+
+    await initializeProvider(provider, providerName, req.user.userId);
+    const counts = await provider.getListCounts();
+    const result = { provider: providerName, counts };
+    cache.set(cacheKey, result, TTL.counts);
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -393,15 +449,15 @@ app.get('/api/lists/:listId/tasks', authService.requireAuth(), async (req, res) 
   try {
     const { listId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
+    const cacheKey = `tasks:${req.user.userId}:${providerName}:${listId}`;
+    const cached = cache.get(cacheKey);
+    if (cached) return res.json(cached);
+
     await initializeProvider(provider, providerName, req.user.userId);
-    
     const tasks = await provider.getTasks(listId);
-    res.json({
-      provider: providerName,
-      user: req.user.username,
-      listId,
-      tasks
-    });
+    const result = { provider: providerName, user: req.user.username, listId, tasks };
+    cache.set(cacheKey, result, TTL.tasks);
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -1,18 +1,21 @@
-const { execSync } = require('child_process');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+
+const execAsync = promisify(exec);
 
 class AppleRemindersProvider {
   constructor() {
     this.name = 'Apple Reminders';
   }
 
-  // Execute AppleScript and return result
-  executeAppleScript(script) {
+  // Execute AppleScript asynchronously — does NOT block the event loop
+  async executeAppleScript(script) {
     try {
-      const result = execSync(`osascript -e '${script.replace(/'/g, "'\\''")}'`, {
+      const { stdout } = await execAsync(`osascript -e '${script.replace(/'/g, "'\\''")}'`, {
         encoding: 'utf-8',
         maxBuffer: 10 * 1024 * 1024
       });
-      return result.trim();
+      return stdout.trim();
     } catch (error) {
       throw new Error(`AppleScript error: ${error.message}`);
     }
@@ -32,9 +35,32 @@ class AppleRemindersProvider {
         return output
       end tell
     `;
-    
-    const result = this.executeAppleScript(script);
+
+    const result = await this.executeAppleScript(script);
     return this.parseListsOutput(result);
+  }
+
+  // Get task counts for all lists in a single AppleScript call
+  async getListCounts() {
+    const script = `
+      tell application "Reminders"
+        set output to ""
+        repeat with aList in lists
+          set output to output & id of aList & "|" & (count of reminders of aList) & linefeed
+        end repeat
+        return output
+      end tell
+    `;
+
+    const result = await this.executeAppleScript(script);
+    const counts = {};
+    for (const line of result.split('\n')) {
+      const parts = line.trim().split('|');
+      if (parts.length === 2) {
+        counts[parts[0]] = parseInt(parts[1], 10) || 0;
+      }
+    }
+    return counts;
   }
 
   // Get tasks from a specific list
@@ -67,8 +93,8 @@ class AppleRemindersProvider {
         return output
       end tell
     `;
-    
-    const result = this.executeAppleScript(script);
+
+    const result = await this.executeAppleScript(script);
     return this.parseTasksOutput(result);
   }
 
@@ -107,8 +133,8 @@ class AppleRemindersProvider {
         return ""
       end tell
     `;
-    
-    const result = this.executeAppleScript(script);
+
+    const result = await this.executeAppleScript(script);
     if (!result) {
       throw new Error('Task not found');
     }
@@ -132,8 +158,8 @@ class AppleRemindersProvider {
         return "not found"
       end tell
     `;
-    
-    const result = this.executeAppleScript(script);
+
+    const result = await this.executeAppleScript(script);
     if (result === 'not found') {
       throw new Error('Task not found');
     }
@@ -144,26 +170,26 @@ class AppleRemindersProvider {
   async createTask(listId, taskData) {
     const name = taskData.name || taskData.title || 'Untitled Task';
     const notes = taskData.notes || taskData.description || '';
-    
+
     let script = `
       tell application "Reminders"
         repeat with aList in lists
           if id of aList is "${listId}" then
             set newReminder to make new reminder at aList with properties {name:"${this.escapeString(name)}"}
     `;
-    
+
     if (notes) {
       script += `\n            set body of newReminder to "${this.escapeString(notes)}"`;
     }
-    
+
     script += `
             return id of newReminder
           end if
         end repeat
       end tell
     `;
-    
-    const result = this.executeAppleScript(script);
+
+    const result = await this.executeAppleScript(script);
     return { id: result, name: name };
   }
 

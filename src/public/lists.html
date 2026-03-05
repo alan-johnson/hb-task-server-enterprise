@@ -15,7 +15,7 @@
         <div class="user-info" id="user-info">Loading…</div>
       </div>
       <div style="display:flex;gap:.5rem;align-items:center">
-        <a href="/dashboard.html" class="btn btn-secondary btn-sm">Dashboard</a>
+        <a href="/settings.html" class="btn btn-secondary btn-sm">Settings</a>
         <button class="btn btn-secondary btn-sm" onclick="logout()">Log Out</button>
       </div>
     </div>
@@ -47,8 +47,8 @@
       google:    { label: 'Google',    icon: '🟥', color: '#b71c1c', bg: '#ffebee' }
     };
 
-    let allLists = [];         // [{ provider, id, name, updated }]
-    let activeFilter = 'all';
+    let allLists = [];         // [{ provider, id, name, updated, taskCount }]
+    let activeFilter = localStorage.getItem('listsFilter') || 'all';
     let connectedProviders = [];
 
     function authHeaders() {
@@ -70,6 +70,7 @@
 
     function setFilter(provider) {
       activeFilter = provider;
+      localStorage.setItem('listsFilter', provider);
       document.querySelectorAll('.filter-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.provider === provider);
       });
@@ -90,15 +91,20 @@
       container.innerHTML = filtered.map(list => {
         const p = PROVIDERS[list.provider] || { label: list.provider, icon: '📋', color: '#555', bg: '#f0f0f0' };
         const updated = list.updated ? new Date(list.updated).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+        const href = `/tasks.html?provider=${encodeURIComponent(list.provider)}&listId=${encodeURIComponent(list.id)}&listName=${encodeURIComponent(list.name)}`;
+        const countHtml = list.taskCount === null
+          ? `<span class="list-count list-count-loading" id="count-${list._idx}">…</span>`
+          : `<span class="list-count" id="count-${list._idx}">${list.taskCount}</span>`;
         return `
-          <div class="list-card">
+          <a class="list-card list-card-link" href="${href}">
             <div class="list-icon">${p.icon}</div>
             <div class="list-info">
               <div class="list-name">${escHtml(list.name)}</div>
               ${updated ? `<div class="list-meta">Updated ${updated}</div>` : ''}
             </div>
+            ${countHtml}
             <span class="badge" style="background:${p.bg};color:${p.color}">${p.label}</span>
-          </div>
+          </a>
         `;
       }).join('');
     }
@@ -111,7 +117,29 @@
       const res = await fetch(`/api/lists?provider=${provider}`, { headers: authHeaders() });
       if (!res.ok) return [];
       const data = await res.json();
-      return (data.lists || []).map(l => ({ ...l, provider }));
+      return (data.lists || []).map(l => ({ ...l, provider, taskCount: null }));
+    }
+
+    // One request per provider returns counts for all its lists at once
+    async function fetchCountsForProvider(provider) {
+      try {
+        const res = await fetch(
+          `/api/lists/counts?provider=${encodeURIComponent(provider)}`,
+          { headers: authHeaders() }
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const counts = data.counts || {};
+        allLists.forEach(list => {
+          if (list.provider !== provider || counts[list.id] === undefined) return;
+          list.taskCount = counts[list.id];
+          const el = document.getElementById(`count-${list._idx}`);
+          if (el) {
+            el.textContent = list.taskCount;
+            el.classList.remove('list-count-loading');
+          }
+        });
+      } catch { /* leave as … */ }
     }
 
     async function init() {
@@ -137,6 +165,12 @@
         .filter(([, connected]) => connected)
         .map(([p]) => p);
 
+      // If saved filter is for a provider that isn't connected, reset to 'all'
+      if (activeFilter !== 'all' && !connectedProviders.includes(activeFilter)) {
+        activeFilter = 'all';
+        localStorage.setItem('listsFilter', 'all');
+      }
+
       // Build filter tabs
       const filterBar = document.getElementById('filter-bar');
       connectedProviders.forEach(p => {
@@ -158,8 +192,10 @@
       // Fetch lists from all connected providers in parallel
       try {
         const results = await Promise.all(connectedProviders.map(fetchListsForProvider));
-        allLists = results.flat();
+        allLists = results.flat().map((l, i) => ({ ...l, _idx: i }));
         renderLists();
+        // One request per provider fetches all counts at once
+        connectedProviders.forEach(p => fetchCountsForProvider(p));
       } catch (err) {
         showBanner('Failed to load lists: ' + err.message, 'error');
         document.getElementById('lists-container').innerHTML =
