@@ -8,7 +8,7 @@ A multi-user REST API server that integrates with Apple Reminders, Microsoft Tas
 - **Microsoft Tasks** — Microsoft Graph API
 - **Google Tasks** — Google Tasks API
 - **Multi-user** — JWT authentication with complete per-user data isolation
-- **Web UI** — Built-in browser dashboard for managing lists, tasks, and provider connections
+- **Web UI** — Built-in browser dashboard for managing lists, tasks (create, edit, complete, delete), and provider connections
 - **PostgreSQL** — Persistent storage with encrypted OAuth token storage (AES-256-GCM)
 - **Redis** — Optional shared cache for multi-instance deployments (falls back to Postgres if not configured)
 - **In-memory cache** — Per-server TTL cache (provider status: 5 min, lists: 2 min, task counts: 2 min, tasks: 30 sec)
@@ -337,7 +337,9 @@ All task endpoints require authentication. The provider is selected by the `?pro
 | `GET` | `/api/lists/:listId/tasks` | Get tasks in a list |
 | `GET` | `/api/lists/:listId/tasks/:taskId` | Get task details |
 | `POST` | `/api/lists/:listId/tasks` | Create a task |
+| `PATCH` | `/api/lists/:listId/tasks/:taskId` | Update a task (name, notes, due date) |
 | `PATCH` | `/api/lists/:listId/tasks/:taskId/complete` | Mark task complete |
+| `DELETE` | `/api/lists/:listId/tasks/:taskId` | Delete a task |
 
 #### `GET /api/lists/counts`
 

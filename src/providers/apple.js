@@ -88,6 +88,9 @@ class AppleRemindersProvider {
                   set output to output & "DUE:" & (due date of aReminder as string) & linefeed
                 end if
               end try
+              try
+                set output to output & "PRIORITY:" & priority of aReminder & linefeed
+              end try
               set output to output & "TASK_END" & linefeed
             end repeat
             exit repeat
@@ -127,6 +130,9 @@ class AppleRemindersProvider {
                   if creation date of aReminder is not missing value then
                     set output to output & "CREATED:" & (creation date of aReminder as string) & linefeed
                   end if
+                end try
+                try
+                  set output to output & "PRIORITY:" & priority of aReminder & linefeed
                 end try
                 return output
               end if
@@ -169,6 +175,69 @@ class AppleRemindersProvider {
     return { success: true, message: 'Task marked as complete' };
   }
 
+  // Update an existing task
+  async updateTask(listId, taskId, taskData) {
+    let script = `
+      tell application "Reminders"
+        repeat with aList in lists
+          if id of aList is "${listId}" then
+            repeat with aReminder in reminders of aList
+              if id of aReminder is "${taskId}" then
+    `;
+
+    if (taskData.name) {
+      script += `\n                set name of aReminder to "${this.escapeString(taskData.name)}"`;
+    }
+    if (taskData.notes !== undefined) {
+      script += `\n                set body of aReminder to "${this.escapeString(taskData.notes || '')}"`;
+    }
+    if (taskData.dueDate) {
+      // taskData.dueDate arrives as YYYY-MM-DD; convert to M/D/YYYY for AppleScript
+      const [y, m, d] = taskData.dueDate.split('-');
+      script += `\n                set due date of aReminder to date "${Number(m)}/${Number(d)}/${y}"`;
+    }
+    if (taskData.priority !== undefined) {
+      script += `\n                set priority of aReminder to ${this.priorityToInt(taskData.priority)}`;
+    }
+
+    script += `
+                return "success"
+              end if
+            end repeat
+          end if
+        end repeat
+        return "not found"
+      end tell
+    `;
+
+    const result = await this.executeAppleScript(script);
+    if (result === 'not found') throw new Error('Task not found');
+    return { success: true, message: 'Task updated' };
+  }
+
+  // Delete a task
+  async deleteTask(listId, taskId) {
+    const script = `
+      tell application "Reminders"
+        repeat with aList in lists
+          if id of aList is "${listId}" then
+            repeat with aReminder in reminders of aList
+              if id of aReminder is "${taskId}" then
+                delete aReminder
+                return "success"
+              end if
+            end repeat
+          end if
+        end repeat
+        return "not found"
+      end tell
+    `;
+
+    const result = await this.executeAppleScript(script);
+    if (result === 'not found') throw new Error('Task not found');
+    return { success: true, message: 'Task deleted' };
+  }
+
   // Create a new task
   async createTask(listId, taskData) {
     const name = taskData.name || taskData.title || 'Untitled Task';
@@ -184,6 +253,9 @@ class AppleRemindersProvider {
     if (notes) {
       script += `\n            set body of newReminder to "${this.escapeString(notes)}"`;
     }
+
+    const priorityInt = this.priorityToInt(taskData.priority || 'low');
+    script += `\n            set priority of newReminder to ${priorityInt}`;
 
     script += `
             return id of newReminder
@@ -260,10 +332,13 @@ class AppleRemindersProvider {
           task.notes = trimmed.substring(6).trim();
         } else if (trimmed.startsWith('DUE:')) {
           task.dueDate = trimmed.substring(4).trim();
+        } else if (trimmed.startsWith('PRIORITY:')) {
+          task.priority = this.parsePriority(parseInt(trimmed.substring(9).trim(), 10));
         }
       }
 
       if (task.id && task.name !== undefined) {
+        if (!task.priority) task.priority = 'low';
         tasks.push(task);
       }
     }
@@ -294,10 +369,31 @@ class AppleRemindersProvider {
         task.dueDate = trimmed.substring(4).trim();
       } else if (trimmed.startsWith('CREATED:')) {
         task.createdDate = trimmed.substring(8).trim();
+      } else if (trimmed.startsWith('PRIORITY:')) {
+        task.priority = this.parsePriority(parseInt(trimmed.substring(9).trim(), 10));
       }
     }
 
+    if (!task.priority) task.priority = 'low';
     return task;
+  }
+
+  // Convert Apple priority integer to normalized string
+  parsePriority(n) {
+    if (!n || n === 0) return 'none';
+    if (n >= 1 && n <= 4) return 'high';
+    if (n === 5) return 'normal';
+    return 'low'; // 6-9
+  }
+
+  // Convert normalized priority string to Apple integer
+  priorityToInt(priority) {
+    switch (priority) {
+      case 'high':   return 1;
+      case 'normal': return 5;
+      case 'low':    return 9;
+      default:       return 0; // none
+    }
   }
 }
 
