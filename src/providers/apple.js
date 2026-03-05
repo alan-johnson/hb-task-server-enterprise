@@ -169,6 +169,66 @@ class AppleRemindersProvider {
     return { success: true, message: 'Task marked as complete' };
   }
 
+  // Update an existing task
+  async updateTask(listId, taskId, taskData) {
+    let script = `
+      tell application "Reminders"
+        repeat with aList in lists
+          if id of aList is "${listId}" then
+            repeat with aReminder in reminders of aList
+              if id of aReminder is "${taskId}" then
+    `;
+
+    if (taskData.name) {
+      script += `\n                set name of aReminder to "${this.escapeString(taskData.name)}"`;
+    }
+    if (taskData.notes !== undefined) {
+      script += `\n                set body of aReminder to "${this.escapeString(taskData.notes || '')}"`;
+    }
+    if (taskData.dueDate) {
+      // taskData.dueDate arrives as YYYY-MM-DD; convert to M/D/YYYY for AppleScript
+      const [y, m, d] = taskData.dueDate.split('-');
+      script += `\n                set due date of aReminder to date "${Number(m)}/${Number(d)}/${y}"`;
+    }
+
+    script += `
+                return "success"
+              end if
+            end repeat
+          end if
+        end repeat
+        return "not found"
+      end tell
+    `;
+
+    const result = await this.executeAppleScript(script);
+    if (result === 'not found') throw new Error('Task not found');
+    return { success: true, message: 'Task updated' };
+  }
+
+  // Delete a task
+  async deleteTask(listId, taskId) {
+    const script = `
+      tell application "Reminders"
+        repeat with aList in lists
+          if id of aList is "${listId}" then
+            repeat with aReminder in reminders of aList
+              if id of aReminder is "${taskId}" then
+                delete aReminder
+                return "success"
+              end if
+            end repeat
+          end if
+        end repeat
+        return "not found"
+      end tell
+    `;
+
+    const result = await this.executeAppleScript(script);
+    if (result === 'not found') throw new Error('Task not found');
+    return { success: true, message: 'Task deleted' };
+  }
+
   // Create a new task
   async createTask(listId, taskData) {
     const name = taskData.name || taskData.title || 'Untitled Task';
