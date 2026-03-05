@@ -11,7 +11,8 @@ const AuthService = require('./auth/authService');
 const UserService = require('./auth/userService');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3500;
+const APPLE_ENABLED = process.env.ENABLE_APPLE_PROVIDER === 'true';
 
 // Simple in-memory TTL cache
 class SimpleCache {
@@ -64,11 +65,15 @@ const providerFactories = {
 
 // Helper to get provider for the authenticated user
 function getProviderForUser(req) {
-  const providerName = req.query.provider || req.body.provider || req.user.defaultProvider || 'apple';
+  const providerName = req.query.provider || req.body.provider || req.user.defaultProvider || 'microsoft';
   const factory = providerFactories[providerName.toLowerCase()];
   
   if (!factory) {
     throw new Error(`Invalid provider: ${providerName}`);
+  }
+
+  if (providerName === 'apple' && !APPLE_ENABLED) {
+    throw new Error('Apple Reminders provider is not enabled on this server.');
   }
 
   // Create provider with user-specific config
@@ -130,10 +135,9 @@ app.get('/terms',   (req, res) => res.sendFile(path.join(__dirname, 'public', 't
 
 // Get available providers
 app.get('/api/providers', (req, res) => {
-  res.json({
-    providers: ['apple', 'microsoft', 'google'],
-    default: process.env.DEFAULT_PROVIDER || 'apple'
-  });
+  const providers = ['microsoft', 'google'];
+  if (APPLE_ENABLED) providers.unshift('apple');
+  res.json({ providers, default: process.env.DEFAULT_PROVIDER || 'microsoft' });
 });
 
 // ============================================
@@ -202,7 +206,7 @@ app.post('/auth/refresh', authService.requireAuth(), (req, res) => {
 // Get connected provider status for the current user
 // Validates each token with a live API call, cached for 5 minutes per user+provider.
 app.get('/auth/providers/status', authService.requireAuth(), async (req, res) => {
-  const status = { apple: true }; // always available on macOS
+  const status = { apple: APPLE_ENABLED };
   await Promise.all(['microsoft', 'google'].map(async (p) => {
     const cacheKey = `status:${req.user.userId}:${p}`;
     const cached = cache.get(cacheKey);
@@ -385,7 +389,8 @@ app.patch('/auth/default-provider', authService.requireAuth(), async (req, res) 
   try {
     const { provider } = req.body;
     
-    if (!['apple', 'microsoft', 'google'].includes(provider)) {
+    const validProviders = APPLE_ENABLED ? ['apple', 'microsoft', 'google'] : ['microsoft', 'google'];
+    if (!validProviders.includes(provider)) {
       return res.status(400).json({ error: 'Invalid provider' });
     }
     
@@ -541,7 +546,8 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Multi-User Task Server running on http://localhost:${PORT}`);
-  console.log(`Default provider: ${process.env.DEFAULT_PROVIDER || 'apple'}`);
+  console.log(`Default provider: ${process.env.DEFAULT_PROVIDER || 'microsoft'}`);
+  console.log(`Apple provider:   ${APPLE_ENABLED ? 'enabled' : 'disabled (set ENABLE_APPLE_PROVIDER=true to enable)'}`);
   console.log('\n📝 Authentication endpoints:');
   console.log('  POST /auth/register');
   console.log('  POST /auth/login');
