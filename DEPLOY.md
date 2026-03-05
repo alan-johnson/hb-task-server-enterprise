@@ -26,6 +26,8 @@ needed for a production-grade enterprise deployment.
 - Linux (Ubuntu 22.04 LTS recommended)
 - Node.js 18 or later
 - npm 9 or later
+- PostgreSQL 14 or later (storage backend)
+- Redis (optional — for multi-instance shared cache)
 - A domain name pointed at the server (required for OAuth redirect URIs)
 - Ports 80 and 443 open in the firewall (for HTTPS via reverse proxy)
 
@@ -66,15 +68,34 @@ cd /opt/hb-task-server
 
 # Install production dependencies
 npm install --omit=dev
-
-# Create the data directory (used for user and credential storage)
-mkdir -p ./data
-chmod 700 ./data
 ```
 
-> The `data/` directory will hold `users.json` and `user-credentials.json`. See
-> [Section 8](#8-known-limitations-to-resolve-before-production) for replacing this with a
-> proper database before going to production.
+### Install and configure PostgreSQL
+
+```bash
+sudo apt-get install -y postgresql postgresql-contrib
+
+# Start and enable PostgreSQL
+sudo systemctl enable --now postgresql
+
+# Create the application database and user
+sudo -u postgres psql <<'SQL'
+CREATE USER hbtask WITH PASSWORD 'choose-a-strong-password';
+CREATE DATABASE hb_task_server OWNER hbtask;
+\q
+SQL
+```
+
+The application applies the database schema automatically on first boot — no manual migration step is needed.
+
+### Install Redis (optional)
+
+Required only for multi-instance deployments. Without it, the server reads directly from PostgreSQL.
+
+```bash
+sudo apt-get install -y redis-server
+sudo systemctl enable --now redis-server
+```
 
 ---
 
@@ -90,15 +111,22 @@ chmod 600 .env   # restrict read access
 Edit `.env` with your values:
 
 ```ini
-# Server
-PORT=3000
+# Server — default port is 3500; set explicitly if you need a different port
+PORT=3500
 
 # Security — generate a strong random secret:
 #   node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 JWT_SECRET=<64-character-random-hex-string>
 
-# Data storage (use an absolute path on a persistent volume)
-DATA_DIR=/opt/hb-task-server/data
+# Database
+DATABASE_URL=postgres://hbtask:choose-a-strong-password@localhost:5432/hb_task_server
+
+# Token encryption key (AES-256-GCM) — must be a 64-character hex string:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+ENCRYPTION_KEY=<64-character-hex-string>
+
+# Redis cache (optional — required only for multi-instance deployments)
+# REDIS_URL=redis://localhost:6379
 
 # Microsoft Tasks (see Section 4.1)
 MICROSOFT_CLIENT_ID=<azure-app-client-id>
@@ -111,28 +139,34 @@ GOOGLE_CLIENT_ID=<google-oauth-client-id>
 GOOGLE_CLIENT_SECRET=<google-oauth-client-secret>
 GOOGLE_REDIRECT_URI=https://your-domain.com/auth/google/callback
 
-# Default provider for new users (microsoft or google — NOT apple on a hosted server)
+# Default provider for new users (microsoft or google)
 DEFAULT_PROVIDER=microsoft
+
+# Apple Reminders — do NOT enable on a Linux server (macOS/AppleScript only)
+# ENABLE_APPLE_PROVIDER=false
 ```
 
-> **Do not set `DEFAULT_PROVIDER=apple`.** The Apple Reminders provider uses AppleScript
-> and only works on macOS. It will fail on any Linux host.
+> **Do not set `ENABLE_APPLE_PROVIDER=true` on a Linux server.** The Apple Reminders
+> provider uses AppleScript and only works on macOS. It is disabled by default.
 
 ### 3.2 Environment variable reference
 
 | Variable | Required | Description |
 |---|---|---|
-| `PORT` | No | HTTP port the server listens on. Default: `3000`. |
+| `PORT` | No | HTTP port the server listens on. Default: `3500`. |
 | `JWT_SECRET` | **Yes** | Secret used to sign JWT tokens. Must be long and random. |
-| `DATA_DIR` | No | Directory for `users.json` and `user-credentials.json`. Default: `./data`. |
+| `DATABASE_URL` | **Yes** | PostgreSQL connection string. Format: `postgres://user:pass@host:port/dbname`. |
+| `ENCRYPTION_KEY` | **Yes** | 64-character hex string used for AES-256-GCM encryption of stored OAuth tokens. |
+| `REDIS_URL` | No | Redis connection string. If omitted, all reads go directly to PostgreSQL. |
 | `MICROSOFT_CLIENT_ID` | If using Microsoft | Azure App Registration client ID. |
 | `MICROSOFT_CLIENT_SECRET` | If using Microsoft | Azure App Registration client secret. |
-| `MICROSOFT_TENANT_ID` | If using Microsoft | Azure AD tenant ID (or `common` for multi-tenant). |
+| `MICROSOFT_TENANT_ID` | If using Microsoft | Azure tenant ID (`common` for personal + work accounts; tenant GUID to restrict to one org). |
 | `MICROSOFT_REDIRECT_URI` | If using Microsoft | Must match the URI registered in Azure exactly. |
 | `GOOGLE_CLIENT_ID` | If using Google | Google OAuth 2.0 client ID. |
 | `GOOGLE_CLIENT_SECRET` | If using Google | Google OAuth 2.0 client secret. |
 | `GOOGLE_REDIRECT_URI` | If using Google | Must match the URI registered in Google Cloud exactly. |
-| `DEFAULT_PROVIDER` | No | Default task provider for new users. Default: `apple`. Set to `microsoft` or `google`. |
+| `DEFAULT_PROVIDER` | No | Default task provider for new users. Default: `microsoft`. |
+| `ENABLE_APPLE_PROVIDER` | No | Set `true` only on macOS. Must be omitted or `false` on Linux. |
 
 ---
 
@@ -140,16 +174,16 @@ DEFAULT_PROVIDER=microsoft
 
 ### 4.1 Microsoft Azure — App Registration
 
-1. Go to [portal.azure.com](https://portal.azure.com) > **Azure Active Directory** > **App registrations** > **New registration**.
+1. Go to [portal.azure.com](https://portal.azure.com) > **Microsoft Entra ID** > **Manage** > **App registrations** > **New registration**. (Azure Active Directory was renamed to Microsoft Entra ID in 2023.)
 2. Set **Name** to `Handsbreadth Task Server`.
 3. Under **Redirect URI**, choose **Web** and enter:
    ```
    https://your-domain.com/auth/microsoft/callback
    ```
 4. After registration, note the **Application (client) ID** and **Directory (tenant) ID**.
-5. Go to **Certificates & secrets** > **New client secret**. Copy the secret value immediately.
-6. Go to **API permissions** > **Add a permission** > **Microsoft Graph** > **Delegated permissions**.
-   Add: `Tasks.ReadWrite`, `User.Read`. Click **Grant admin consent**.
+5. Go to **Manage** > **Certificates & secrets** > **New client secret**. Copy the **Value** immediately (not the Secret ID).
+6. Go to **Manage** > **API permissions** > **Add a permission** > **Microsoft Graph** > **Delegated permissions**.
+   Add: `Tasks.ReadWrite`, `offline_access`, `User.Read`. Click **Grant admin consent**.
 
 Set in `.env`:
 ```ini
@@ -186,7 +220,7 @@ GOOGLE_REDIRECT_URI=https://your-domain.com/auth/google/callback
 ### Direct start (for testing only)
 
 ```bash
-node src/hb-task-server-multiuser.js
+node src/server.js
 ```
 
 ### With PM2 (recommended for production)
@@ -200,7 +234,7 @@ npm install -g pm2
 Start the server:
 
 ```bash
-pm2 start src/hb-task-server-multiuser.js --name hb-task-server
+pm2 start src/server.js --name hb-task-server
 ```
 
 Configure PM2 to start on system boot:
@@ -224,7 +258,7 @@ pm2 stop hb-task-server       # stop the server
 ## 6. Verification Scripts
 
 Run these checks after deployment to confirm the server is operating correctly.
-All commands target `https://your-domain.com`. Replace with `http://localhost:3000`
+All commands target `https://your-domain.com`. Replace with `http://localhost:3500`
 for local testing.
 
 ### 6.1 Health check
@@ -250,13 +284,15 @@ is misconfigured.
 curl -s https://your-domain.com/api/providers | jq .
 ```
 
-Expected response:
+Expected response (Apple is disabled by default on a server deployment):
 ```json
 {
-  "providers": ["apple", "microsoft", "google"],
+  "providers": ["microsoft", "google"],
   "default": "microsoft"
 }
 ```
+
+If `ENABLE_APPLE_PROVIDER=true` is set, `"apple"` will appear first in the list.
 
 ### 6.3 User registration
 
@@ -355,7 +391,7 @@ server {
 
     # Proxy all traffic to the Node.js server
     location / {
-        proxy_pass         http://127.0.0.1:3000;
+        proxy_pass         http://127.0.0.1:3500;
         proxy_http_version 1.1;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;
@@ -395,32 +431,35 @@ Covered in [Section 5](#5-start-the-server). PM2 provides:
 - Log management (`pm2 logs`, `pm2 logrotate`)
 - Cluster mode for multi-core scaling (requires stateless session storage first — see 7.3)
 
-### 7.3 Database — replace file-based storage
+### 7.3 Database — PostgreSQL (already implemented)
 
-**Current state:** User accounts and OAuth credentials are stored in two JSON files
-(`users.json`, `user-credentials.json`) loaded entirely into memory. This has two
-critical problems for enterprise use:
+The application stores all data in PostgreSQL with AES-256-GCM encrypted OAuth tokens. The schema is applied automatically on startup.
 
-1. **OAuth tokens are stored in plaintext.** Access tokens and refresh tokens are sensitive
-   credentials. They must be encrypted at rest.
-2. **File storage does not support multiple Node.js processes.** Horizontal scaling or
-   a cluster restart will cause data inconsistency.
+**Schema summary:**
 
-**Required change:** Replace `src/auth/userService.js` with a database-backed
-implementation. Recommended options:
-
-| Option | Use case |
+| Table | Key columns |
 |---|---|
-| **PostgreSQL** | Relational data, strong consistency, best for most enterprise deployments |
-| **MongoDB** | Document store, easier schema flexibility |
-| **SQLite** | Single-server deployments with low write volume; zero setup |
+| `users` | `user_id`, `username`, `email`, `password_hash`, `default_provider`, `show_completed` |
+| `user_credentials` | `user_id`, `provider`, `access_token` (encrypted), `refresh_token` (encrypted), `updated_at` |
 
-At minimum, the schema needs two tables/collections:
-- `users` — userId, username, email, passwordHash, defaultProvider, createdAt
-- `user_credentials` — userId, provider, accessTokenEncrypted, refreshTokenEncrypted, updatedAt
+**Key security properties:**
+- Passwords are hashed with bcrypt (10 rounds)
+- OAuth access and refresh tokens are encrypted at rest with AES-256-GCM using `ENCRYPTION_KEY`
+- Tokens are only decrypted in memory when needed for an API call
 
-Encrypt `accessTokenEncrypted` and `refreshTokenEncrypted` using AES-256-GCM with a
-key stored in a secrets manager (see 7.4), not in the database itself.
+**For horizontal scaling:** add `REDIS_URL` to share the read cache across all instances. Without Redis, each instance reads from PostgreSQL independently (correct but higher DB load).
+
+**PostgreSQL backups:**
+
+```bash
+# Daily logical backup
+pg_dump hb_task_server | gzip > /backups/hb_task_server_$(date +%F).sql.gz
+
+# Restore
+gunzip -c /backups/hb_task_server_2026-03-05.sql.gz | psql hb_task_server
+```
+
+For production, prefer continuous WAL archiving (pg_basebackup + WAL streaming) or a managed PostgreSQL service with automatic backups (AWS RDS, Google Cloud SQL, Azure Database for PostgreSQL).
 
 ### 7.4 Secrets management
 
@@ -484,7 +523,7 @@ Only nginx (or your reverse proxy) should be publicly accessible.
 sudo ufw allow 22/tcp    # SSH
 sudo ufw allow 80/tcp    # HTTP (redirects to HTTPS)
 sudo ufw allow 443/tcp   # HTTPS
-sudo ufw deny 3000/tcp   # block direct Node.js access
+sudo ufw deny 3500/tcp   # block direct Node.js access
 sudo ufw enable
 ```
 
@@ -502,16 +541,14 @@ alert on failure.
 
 ### 7.10 Backup
 
-If using file-based storage (development), back up the `data/` directory:
+Back up PostgreSQL using `pg_dump`:
 
 ```bash
 # Example: daily backup to S3
-aws s3 cp /opt/hb-task-server/data/users.json s3://your-bucket/backups/users-$(date +%F).json
-aws s3 cp /opt/hb-task-server/data/user-credentials.json s3://your-bucket/backups/credentials-$(date +%F).json
+pg_dump hb_task_server | gzip | aws s3 cp - s3://your-bucket/backups/hb_task_server_$(date +%F).sql.gz
 ```
 
-If using a database (production), use the database's native backup tools (pg_dump for
-PostgreSQL, mongodump for MongoDB).
+For production, use a managed PostgreSQL service with automated backups, or configure continuous WAL archiving with point-in-time recovery (PITR).
 
 ---
 
@@ -522,13 +559,9 @@ production enterprise deployment.
 
 | # | Limitation | Impact | Resolution |
 |---|---|---|---|
-| 1 | OAuth tokens stored in plaintext JSON | Critical — credential exposure if file is read | Encrypt tokens at rest; use a database with column-level encryption |
-| 2 | No token refresh | High — users get errors after ~1 hour | Implement refresh logic in Google and Microsoft providers |
-| 3 | File-based storage is single-process | High — cannot scale horizontally | Replace with PostgreSQL or MongoDB |
-| 4 | In-memory user Map | High — data lost on crash before write completes | Database handles this automatically |
-| 5 | No rate limiting | High — brute-force attack on `/auth/login` | Add `express-rate-limit` |
-| 6 | No HTTPS in application | Medium — handled by reverse proxy, but must be enforced | Configure nginx to reject non-HTTPS; set `trust proxy` in Express |
-| 7 | `DEFAULT_PROVIDER=apple` default | Medium — Apple provider fails on Linux | Set to `microsoft` or `google` in `.env` |
-| 8 | Google OAuth callback state is unsigned base64 | Medium — CSRF risk | Sign the state parameter with a short-lived HMAC or use a server-side session |
-| 9 | No password reset flow | Low — operational gap | Implement email-based reset |
-| 10 | 7-day JWT expiry with no revocation | Low — stolen tokens valid for 7 days | Reduce expiry or implement a token revocation list |
+| 1 | No OAuth token refresh | High — users get errors after provider token expires (~1 hour for Microsoft and Google) | Implement refresh logic in each provider: catch 401, call refresh endpoint, store new token, retry |
+| 2 | No rate limiting | High — brute-force attack on `/auth/login` | Add `express-rate-limit` |
+| 3 | No HTTPS enforcement in application | Medium — handled by reverse proxy, but must be enforced | Configure nginx to reject non-HTTPS; set `trust proxy` in Express |
+| 4 | OAuth callback state is unsigned base64 | Medium — CSRF risk on the OAuth redirect | Sign the state parameter with a short-lived HMAC or use a server-side session |
+| 5 | No password reset flow | Low — operational gap | Implement email-based reset |
+| 6 | 30-day JWT expiry with no revocation | Low — stolen tokens valid up to 30 days | Reduce expiry or implement a token revocation list (e.g., store revoked JTIs in Redis) |
