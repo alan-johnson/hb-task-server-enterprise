@@ -381,6 +381,34 @@ body.dashboard {
   margin-top: .1rem;
 }
 
+.task-card-expandable { cursor: pointer; }
+.task-card-expandable:hover { box-shadow: 0 2px 10px rgba(0,0,0,.1); }
+
+.task-expand-icon {
+  font-size: 1.2rem;
+  color: #bbb;
+  flex-shrink: 0;
+  align-self: center;
+  transition: transform .2s;
+  user-select: none;
+}
+
+.task-card-expanded .task-expand-icon { transform: rotate(90deg); }
+
+.task-details {
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height .25s ease, margin-top .2s ease;
+}
+
+.task-card-expanded .task-details {
+  max-height: 500px;
+  margin-top: .4rem;
+}
+
 /* ── Toggle switch ── */
 .toggle-switch {
   position: relative;

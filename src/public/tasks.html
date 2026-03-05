@@ -103,17 +103,25 @@
     }
 
     function taskCard(task, done) {
-      const due   = task.dueDate ? `<span class="task-due">Due ${formatDate(task.dueDate)}</span>` : '';
-      const notes = task.notes   ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
+      const due     = task.dueDate ? `<span class="task-due">Due ${formatDate(task.dueDate)}</span>` : '';
+      const updated = task.updated ? `<span class="task-due">Updated ${formatDate(task.updated)}</span>` : '';
+      const notes   = task.notes   ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
+      const hasDetails = !!(due || updated || notes);
       return `
-        <div class="task-card${done ? ' task-card-done' : ''}">
+        <div class="task-card${done ? ' task-card-done' : ''}${hasDetails ? ' task-card-expandable' : ''}"
+             ${hasDetails ? 'onclick="toggleTask(this)"' : ''}>
           <div class="task-check">${done ? '✓' : ''}</div>
           <div class="task-body">
             <div class="task-name${done ? ' task-name-done' : ''}">${escHtml(task.name)}</div>
-            ${due || notes ? `<div class="task-meta">${due}${notes}</div>` : ''}
+            ${hasDetails ? `<div class="task-details">${due}${updated}${notes}</div>` : ''}
           </div>
+          ${hasDetails ? '<div class="task-expand-icon">›</div>' : ''}
         </div>
       `;
+    }
+
+    function toggleTask(el) {
+      el.classList.toggle('task-card-expanded');
     }
 
     async function init() {
