@@ -14,7 +14,7 @@ if "$PG_BIN/pg_isready" -q 2>/dev/null; then
   echo "PostgreSQL is already running."
 else
   echo "Starting PostgreSQL..."
-  LC_ALL="en_US.UTF-8" "$PG_CTL" start -D "$PG_DATA" -l "$PG_LOG" -w -q
+  LC_ALL="en_US.UTF-8" "$PG_CTL" start -D "$PG_DATA" -l "$PG_LOG" -w
   echo "  PostgreSQL started. Log: $PG_LOG"
 fi
 
