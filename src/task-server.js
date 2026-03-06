@@ -393,6 +393,117 @@ app.patch('/auth/default-provider', authService.requireAuth(), async (req, res) 
 });
 
 // ============================================
+// Per-user Classification Rules
+// ============================================
+
+// Get effective rules: user's custom rules, or server defaults if none set
+app.get('/auth/me/classification', authService.requireAuth(), async (req, res) => {
+  try {
+    const rules = await userService.getClassificationRules(req.user.userId);
+    res.json({ rules: rules || classificationConfig, isCustom: !!rules });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Save custom rules for this user
+app.put('/auth/me/classification', authService.requireAuth(), async (req, res) => {
+  try {
+    const { now, not_now, later } = req.body;
+    if (!now || !not_now || !later) {
+      return res.status(400).json({ error: 'now, not_now, and later are required' });
+    }
+    const rules = { now, not_now, later };
+    await userService.updateClassificationRules(req.user.userId, rules);
+    res.json({ success: true, rules });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Reset this user's rules back to server defaults
+app.delete('/auth/me/classification', authService.requireAuth(), async (req, res) => {
+  try {
+    await userService.resetClassificationRules(req.user.userId);
+    res.json({ success: true, rules: classificationConfig });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Parse a TOML classification file and return validated rules (no save)
+app.post('/auth/me/classification/parse', authService.requireAuth(), async (req, res) => {
+  try {
+    const { toml } = req.body;
+    if (!toml || typeof toml !== 'string') {
+      return res.status(400).json({ error: 'toml field is required' });
+    }
+    let parsed;
+    try {
+      parsed = TOML.parse(toml);
+    } catch (e) {
+      return res.status(400).json({ error: `TOML parse error: ${e.message}` });
+    }
+    const { now, not_now, later } = parsed;
+    if (!now || !not_now || !later) {
+      return res.status(400).json({ error: 'TOML must contain [now], [not_now], and [later] sections' });
+    }
+    const rules = {
+      now:     { label: String(now.label     || 'Now'),     overdue:     !!now.overdue,     priorities: Array.isArray(now.priorities)     ? now.priorities     : [] },
+      not_now: { label: String(not_now.label || 'Not Now'), future_due:  !!not_now.future_due, priorities: Array.isArray(not_now.priorities) ? not_now.priorities : [] },
+      later:   { label: String(later.label   || 'Later') }
+    };
+    res.json({ rules });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Unified Task List (all providers, all lists)
+// ============================================
+
+app.get('/api/tasks/unified', authService.requireAuth(), async (req, res) => {
+  const userId = req.user.userId;
+  const cacheKey = `unified:${userId}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return res.json(cached);
+
+  // Determine which providers are connected for this user
+  const providerNames = [];
+  if (APPLE_ENABLED) providerNames.push('apple');
+  for (const p of ['microsoft', 'google']) {
+    const creds = await userService.getCredentials(userId, p);
+    if (creds) providerNames.push(p);
+  }
+
+  const allTasks = [];
+
+  await Promise.all(providerNames.map(async (providerName) => {
+    try {
+      const { provider } = getProviderForUser({
+        ...req, query: { provider: providerName }, body: {}
+      });
+      await initializeProvider(provider, providerName, userId);
+      const lists = await provider.getLists();
+
+      await Promise.all(lists.map(async (list) => {
+        try {
+          const tasks = await provider.getTasks(list.id);
+          for (const task of tasks) {
+            allTasks.push({ ...task, provider: providerName, listId: list.id, listName: list.name });
+          }
+        } catch { /* skip lists that fail to load */ }
+      }));
+    } catch { /* skip providers that fail to initialize */ }
+  }));
+
+  const result = { user: req.user.username, tasks: allTasks };
+  cache.set(cacheKey, result, TTL.tasks);
+  res.json(result);
+});
+
+// ============================================
 // Task Lists Routes
 // ============================================
 
@@ -475,6 +586,7 @@ app.post('/api/lists/:listId/tasks', authService.requireAuth(), async (req, res)
 
     const task = await provider.createTask(listId, req.body);
     cache.delete(`tasks:${req.user.userId}:${providerName}:${listId}`);
+    cache.delete(`unified:${req.user.userId}`);
     cache.deletePrefix(`counts:${req.user.userId}:${providerName}:`);
     res.status(201).json({ provider: providerName, user: req.user.username, listId, task });
   } catch (error) {
@@ -490,6 +602,7 @@ app.patch('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), async (
 
     const result = await provider.updateTask(listId, taskId, req.body);
     cache.delete(`tasks:${req.user.userId}:${providerName}:${listId}`);
+    cache.delete(`unified:${req.user.userId}`);
     res.json({ provider: providerName, user: req.user.username, listId, taskId, ...result });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -504,6 +617,7 @@ app.patch('/api/lists/:listId/tasks/:taskId/complete', authService.requireAuth()
 
     const result = await provider.completeTask(listId, taskId);
     cache.delete(`tasks:${req.user.userId}:${providerName}:${listId}`);
+    cache.delete(`unified:${req.user.userId}`);
     cache.deletePrefix(`counts:${req.user.userId}:${providerName}:`);
     res.json({ provider: providerName, user: req.user.username, listId, taskId, ...result });
   } catch (error) {
@@ -519,6 +633,7 @@ app.delete('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), async 
 
     const result = await provider.deleteTask(listId, taskId);
     cache.delete(`tasks:${req.user.userId}:${providerName}:${listId}`);
+    cache.delete(`unified:${req.user.userId}`);
     cache.deletePrefix(`counts:${req.user.userId}:${providerName}:`);
     res.json({ provider: providerName, user: req.user.username, listId, taskId, ...result });
   } catch (error) {

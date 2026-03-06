@@ -68,11 +68,91 @@
       </div>
     </div>
 
+    <div class="section-title" style="margin-top:2rem">Task Classification</div>
+    <div class="provider-card">
+      <div class="provider-info">
+        <div class="provider-name">Classification Rules</div>
+        <div class="provider-desc" id="classification-status">Loading…</div>
+      </div>
+      <div class="provider-actions">
+        <button class="btn btn-secondary btn-sm" onclick="toggleClassificationEditor()">Edit Rules</button>
+        <button class="btn btn-secondary btn-sm" onclick="exportClassification()">Export</button>
+        <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">
+          Import
+          <input type="file" accept=".toml" style="display:none" onchange="importClassification(this)">
+        </label>
+        <button class="btn btn-danger btn-sm" id="reset-rules-btn" style="display:none" onclick="resetClassificationRules()">Reset to Defaults</button>
+      </div>
+    </div>
+
+    <!-- Classification editor (hidden until Edit is clicked) -->
+    <div id="classification-editor" style="display:none;margin-top:.75rem">
+      <div class="provider-card" style="flex-direction:column;align-items:stretch;gap:1.25rem">
+
+        <!-- Now -->
+        <div>
+          <div style="font-weight:600;margin-bottom:.5rem">Now</div>
+          <div class="form-group" style="margin-bottom:.5rem">
+            <label for="now-label">Label</label>
+            <input id="now-label" type="text">
+          </div>
+          <div style="display:flex;gap:1rem;flex-wrap:wrap;font-size:.9rem">
+            <label><input type="checkbox" id="now-overdue">  Match overdue tasks</label>
+            <label><input type="checkbox" id="now-p-high">   High priority</label>
+            <label><input type="checkbox" id="now-p-normal"> Normal priority</label>
+            <label><input type="checkbox" id="now-p-low">    Low priority</label>
+          </div>
+        </div>
+
+        <!-- Not Now -->
+        <div>
+          <div style="font-weight:600;margin-bottom:.5rem">Not Now</div>
+          <div class="form-group" style="margin-bottom:.5rem">
+            <label for="not-now-label">Label</label>
+            <input id="not-now-label" type="text">
+          </div>
+          <div style="display:flex;gap:1rem;flex-wrap:wrap;font-size:.9rem">
+            <label><input type="checkbox" id="notnow-future">   Match tasks with future due dates</label>
+            <label><input type="checkbox" id="notnow-p-high">   High priority</label>
+            <label><input type="checkbox" id="notnow-p-normal"> Normal priority</label>
+            <label><input type="checkbox" id="notnow-p-low">    Low priority</label>
+          </div>
+        </div>
+
+        <!-- Later -->
+        <div>
+          <div style="font-weight:600;margin-bottom:.5rem">Later <span style="font-weight:400;color:#999">(catch-all — no conditions)</span></div>
+          <div class="form-group" style="margin-bottom:0">
+            <label for="later-label">Label</label>
+            <input id="later-label" type="text">
+          </div>
+        </div>
+
+        <div style="display:flex;gap:.5rem">
+          <button class="btn btn-primary btn-sm" onclick="saveClassificationRules()">Save Rules</button>
+          <button class="btn btn-secondary btn-sm" onclick="toggleClassificationEditor()">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <p style="margin-top:2rem;font-size:.8rem;color:#999;text-align:center">
       <a href="/privacy" style="color:#999">Privacy Policy</a> &nbsp;·&nbsp;
       <a href="/terms" style="color:#999">Terms of Service</a>
     </p>
 
+  </div>
+
+  <!-- ── Import preview modal ── -->
+  <div id="import-modal" class="modal-overlay" style="display:none" onclick="handleImportOverlayClick(event)">
+    <div class="modal-box">
+      <h2>Import Classification Rules</h2>
+      <p style="color:#555;margin:.25rem 0 1rem">Review the rules from your file before applying them.</p>
+      <div id="import-preview" style="background:#f8f8f8;border:1px solid #e0e0e0;border-radius:6px;padding:1rem;font-size:.88rem;line-height:1.6"></div>
+      <div class="modal-actions" style="margin-top:1.25rem">
+        <button class="btn btn-secondary" onclick="closeImportModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="confirmImport()">Apply Rules</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -225,7 +305,207 @@
       }
     }
 
+    // ── Classification rules ───────────────────────────────────
+
+    let currentRules = null;
+
+    async function loadClassificationRules() {
+      try {
+        const res = await fetch('/auth/me/classification', { headers: authHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        currentRules = data.rules;
+        document.getElementById('classification-status').textContent =
+          data.isCustom ? 'Using your custom rules' : 'Using server defaults';
+        document.getElementById('reset-rules-btn').style.display =
+          data.isCustom ? '' : 'none';
+        populateEditor(data.rules);
+      } catch {
+        document.getElementById('classification-status').textContent = 'Could not load rules.';
+      }
+    }
+
+    function populateEditor(rules) {
+      document.getElementById('now-label').value      = rules.now.label      || 'Now';
+      document.getElementById('not-now-label').value  = rules.not_now.label  || 'Not Now';
+      document.getElementById('later-label').value    = rules.later.label    || 'Later';
+
+      document.getElementById('now-overdue').checked   = !!rules.now.overdue;
+      document.getElementById('now-p-high').checked    = !!(rules.now.priorities || []).includes('high');
+      document.getElementById('now-p-normal').checked  = !!(rules.now.priorities || []).includes('normal');
+      document.getElementById('now-p-low').checked     = !!(rules.now.priorities || []).includes('low');
+
+      document.getElementById('notnow-future').checked   = !!rules.not_now.future_due;
+      document.getElementById('notnow-p-high').checked   = !!(rules.not_now.priorities || []).includes('high');
+      document.getElementById('notnow-p-normal').checked = !!(rules.not_now.priorities || []).includes('normal');
+      document.getElementById('notnow-p-low').checked    = !!(rules.not_now.priorities || []).includes('low');
+    }
+
+    function toggleClassificationEditor() {
+      const ed = document.getElementById('classification-editor');
+      ed.style.display = ed.style.display === 'none' ? '' : 'none';
+    }
+
+    async function saveClassificationRules() {
+      const nowPriorities    = [];
+      const notNowPriorities = [];
+      if (document.getElementById('now-p-high').checked)    nowPriorities.push('high');
+      if (document.getElementById('now-p-normal').checked)  nowPriorities.push('normal');
+      if (document.getElementById('now-p-low').checked)     nowPriorities.push('low');
+      if (document.getElementById('notnow-p-high').checked)   notNowPriorities.push('high');
+      if (document.getElementById('notnow-p-normal').checked) notNowPriorities.push('normal');
+      if (document.getElementById('notnow-p-low').checked)    notNowPriorities.push('low');
+
+      const rules = {
+        now:     { label: document.getElementById('now-label').value.trim()     || 'Now',
+                   overdue: document.getElementById('now-overdue').checked,
+                   priorities: nowPriorities },
+        not_now: { label: document.getElementById('not-now-label').value.trim() || 'Not Now',
+                   future_due: document.getElementById('notnow-future').checked,
+                   priorities: notNowPriorities },
+        later:   { label: document.getElementById('later-label').value.trim()   || 'Later' }
+      };
+
+      try {
+        const res = await fetch('/auth/me/classification', {
+          method: 'PUT',
+          headers: authHeaders(),
+          body: JSON.stringify(rules)
+        });
+        if (!res.ok) { const d = await res.json(); showBanner(d.error || 'Failed to save', 'error'); return; }
+        showBanner('Classification rules saved.');
+        document.getElementById('classification-editor').style.display = 'none';
+        await loadClassificationRules();
+      } catch {
+        showBanner('Could not reach the server.', 'error');
+      }
+    }
+
+    async function resetClassificationRules() {
+      if (!confirm('Reset to server defaults? Your custom rules will be removed.')) return;
+      try {
+        const res = await fetch('/auth/me/classification', { method: 'DELETE', headers: authHeaders() });
+        if (!res.ok) { const d = await res.json(); showBanner(d.error || 'Failed to reset', 'error'); return; }
+        showBanner('Classification rules reset to server defaults.');
+        await loadClassificationRules();
+      } catch {
+        showBanner('Could not reach the server.', 'error');
+      }
+    }
+
     init();
+    loadClassificationRules();
+
+    // ── Export / Import ─────────────────────────────────────────
+
+    function rulesToToml(rules) {
+      const r = rules;
+      const priorities = (arr) => arr && arr.length
+        ? `priorities = [${arr.map(p => `"${p}"`).join(', ')}]`
+        : 'priorities = []';
+
+      return [
+        `[now]`,
+        `label = "${r.now.label || 'Now'}"`,
+        `overdue = ${!!r.now.overdue}`,
+        priorities(r.now.priorities),
+        ``,
+        `[not_now]`,
+        `label = "${r.not_now.label || 'Not Now'}"`,
+        `future_due = ${!!r.not_now.future_due}`,
+        priorities(r.not_now.priorities),
+        ``,
+        `[later]`,
+        `label = "${r.later.label || 'Later'}"`,
+      ].join('\n');
+    }
+
+    function exportClassification() {
+      if (!currentRules) { showBanner('Rules not loaded yet.', 'error'); return; }
+      const toml = rulesToToml(currentRules);
+      const blob = new Blob([toml], { type: 'text/plain' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = 'classification-rules.toml';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    let pendingImportRules = null;
+
+    async function importClassification(input) {
+      const file = input.files[0];
+      input.value = '';           // reset so same file can be re-imported
+      if (!file) return;
+
+      let text;
+      try { text = await file.text(); }
+      catch { showBanner('Could not read file.', 'error'); return; }
+
+      try {
+        const res = await fetch('/auth/me/classification/parse', {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ toml: text })
+        });
+        const data = await res.json();
+        if (!res.ok) { showBanner(data.error || 'Failed to parse file', 'error'); return; }
+        showImportPreview(data.rules);
+      } catch {
+        showBanner('Could not reach the server.', 'error');
+      }
+    }
+
+    function showImportPreview(rules) {
+      pendingImportRules = rules;
+      const fmt = (label, items) => `<strong>${label}</strong>: ${items.join(' · ') || '(none)'}`;
+      const prio = (arr) => arr && arr.length ? arr.join(', ') : 'none';
+      document.getElementById('import-preview').innerHTML = `
+        <div style="margin-bottom:.6rem">${fmt('Now',     [`Label: <em>${escHtml(rules.now.label)}</em>`,     `Overdue: ${rules.now.overdue ? 'yes' : 'no'}`,     `Priority: ${prio(rules.now.priorities)}`])}</div>
+        <div style="margin-bottom:.6rem">${fmt('Not Now', [`Label: <em>${escHtml(rules.not_now.label)}</em>`, `Future due: ${rules.not_now.future_due ? 'yes' : 'no'}`, `Priority: ${prio(rules.not_now.priorities)}`])}</div>
+        <div>${fmt('Later',   [`Label: <em>${escHtml(rules.later.label)}</em>`])}</div>
+      `;
+      document.getElementById('import-modal').style.display = 'flex';
+    }
+
+    function escHtml(s) {
+      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function closeImportModal() {
+      document.getElementById('import-modal').style.display = 'none';
+      pendingImportRules = null;
+    }
+
+    function handleImportOverlayClick(e) {
+      if (e.target === document.getElementById('import-modal')) closeImportModal();
+    }
+
+    async function confirmImport() {
+      if (!pendingImportRules) return;
+      const btn = document.querySelector('#import-modal .btn-primary');
+      btn.disabled = true;
+      btn.textContent = 'Applying…';
+      try {
+        const res = await fetch('/auth/me/classification', {
+          method: 'PUT',
+          headers: authHeaders(),
+          body: JSON.stringify(pendingImportRules)
+        });
+        if (!res.ok) { const d = await res.json(); showBanner(d.error || 'Failed to apply rules', 'error'); }
+        else {
+          showBanner('Classification rules imported successfully.');
+          closeImportModal();
+          await loadClassificationRules();
+        }
+      } catch {
+        showBanner('Could not reach the server.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Apply Rules';
+      }
+    }
   </script>
 </body>
 </html>

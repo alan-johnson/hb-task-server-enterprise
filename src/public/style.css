@@ -516,6 +516,14 @@ body.dashboard {
 .task-action-delete { color: #c00; border-color: #fcc; }
 .task-action-delete:hover { background: #fff2f2; border-color: #f99; color: #c00; }
 
+.task-provider-badge {
+  display: inline-flex; align-items: center; gap: .25rem;
+  font-size: .75rem; color: #666; text-decoration: none;
+  padding: .2rem .5rem; border: 1px solid #e0e0e5; border-radius: 6px;
+  background: #f8f8fa; transition: background .12s, color .12s;
+}
+.task-provider-badge:hover { background: #eeeef4; color: #333; }
+
 /* ── Modal ── */
 .modal-overlay {
   position: fixed;

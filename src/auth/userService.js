@@ -181,6 +181,38 @@ class UserService {
     return user;
   }
 
+  // ---------- classification rules ----------
+
+  async getClassificationRules(userId) {
+    const cacheKey = `classrules:${userId}`;
+    const cached = await cache.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+
+    const result = await pool.query(
+      'SELECT classification_rules FROM users WHERE user_id = $1',
+      [userId]
+    );
+    const rules = result.rows[0]?.classification_rules || null;
+    if (rules) await cache.set(cacheKey, JSON.stringify(rules));
+    return rules;
+  }
+
+  async updateClassificationRules(userId, rules) {
+    await pool.query(
+      'UPDATE users SET classification_rules = $2 WHERE user_id = $1',
+      [userId, JSON.stringify(rules)]
+    );
+    await cache.del(`classrules:${userId}`);
+  }
+
+  async resetClassificationRules(userId) {
+    await pool.query(
+      'UPDATE users SET classification_rules = NULL WHERE user_id = $1',
+      [userId]
+    );
+    await cache.del(`classrules:${userId}`);
+  }
+
   async updatePreferences(userId, { showCompleted }) {
     const result = await pool.query(
       'UPDATE users SET show_completed = $2 WHERE user_id = $1 RETURNING username',
