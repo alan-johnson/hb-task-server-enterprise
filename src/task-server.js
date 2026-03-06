@@ -38,6 +38,9 @@ const classificationConfig = loadClassificationConfig();
 const app = express();
 const API_PORT = process.env.API_PORT || process.env.PORT || 3500;
 const APPLE_ENABLED = process.env.ENABLE_APPLE_PROVIDER === 'true';
+// Base URL of the web server — used to redirect browsers after OAuth callbacks.
+// If empty, relative redirects are used (works when this server is behind a proxy).
+const WEB_URL = (process.env.WEB_URL || '').replace(/\/$/, '');
 
 // Simple in-memory TTL cache
 class SimpleCache {
@@ -275,7 +278,7 @@ app.get('/auth/google/callback', async (req, res) => {
     });
     cache.delete(`status:${userId}:google`);
 
-    res.redirect('/settings.html?connected=google');
+    res.redirect(`${WEB_URL}/settings.html?connected=google`);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -323,7 +326,7 @@ app.get('/auth/microsoft/callback', async (req, res) => {
     });
     cache.delete(`status:${userId}:microsoft`);
 
-    res.redirect('/settings.html?connected=microsoft');
+    res.redirect(`${WEB_URL}/settings.html?connected=microsoft`);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
