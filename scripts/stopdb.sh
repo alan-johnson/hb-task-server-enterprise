@@ -20,7 +20,11 @@ fi
 
 if "$REDIS_CLI" ping 2>/dev/null | grep -q PONG; then
   echo "Stopping Redis..."
-  "$REDIS_CLI" shutdown nosave 2>/dev/null || true
+  if brew services list 2>/dev/null | grep -q "^redis.*started"; then
+    brew services stop redis
+  else
+    "$REDIS_CLI" shutdown nosave 2>/dev/null || true
+  fi
   echo "  Redis stopped."
 else
   echo "Redis is not running."
