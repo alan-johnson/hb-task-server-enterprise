@@ -10,8 +10,11 @@ PG_CTL="$(command -v pg_ctl 2>/dev/null || echo "$PG_BIN/pg_ctl")"
 
 if "$PG_BIN/pg_isready" -q 2>/dev/null; then
   echo "Stopping PostgreSQL..."
-  "$PG_CTL" stop -D "$PG_DATA" -m fast -w -q
-  echo "  PostgreSQL stopped."
+  if "$PG_CTL" stop -D "$PG_DATA" -m fast -w; then
+    echo "  PostgreSQL stopped."
+  else
+    echo "  ERROR: pg_ctl stop failed." >&2
+  fi
 else
   echo "PostgreSQL is not running."
 fi
