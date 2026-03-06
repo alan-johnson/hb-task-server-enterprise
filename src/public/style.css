@@ -742,3 +742,14 @@ body.dashboard {
   .task-actions { opacity: 1; }
   .modal-box { padding: 1.25rem; }
 }
+
+/* ── Footer ── */
+.site-footer {
+  width: 100%;
+  padding: 1rem 2rem;
+  background: #182471;
+  text-align: center;
+  font-size: .8rem;
+  color: rgba(255,255,255,.65);
+  flex-shrink: 0;
+}
