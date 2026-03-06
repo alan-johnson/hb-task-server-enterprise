@@ -24,3 +24,5 @@ CREATE TABLE IF NOT EXISTS user_credentials (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_credentials_user_id ON user_credentials(user_id);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS classification_rules JSONB;
