@@ -40,20 +40,7 @@ node src/web-server.js &
 WEB_PID=$!
 
 echo ""
-echo "Both servers running. Press Ctrl+C to stop."
+echo "Both servers running in the background."
 echo "  Task API server PID: $API_PID"
 echo "  Web server PID:      $WEB_PID"
-
-# ── Cleanup on exit ─────────────────────────────────────────────────────────
-
-cleanup() {
-  echo ""
-  echo "Stopping servers..."
-  kill "$API_PID" "$WEB_PID" 2>/dev/null
-  wait "$API_PID" "$WEB_PID" 2>/dev/null
-  echo "Servers stopped."
-}
-
-trap cleanup INT TERM
-
-wait "$API_PID" "$WEB_PID"
+echo "Run scripts/stop-all.sh to stop them."
