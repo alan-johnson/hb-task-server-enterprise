@@ -1,0 +1,127 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Task Classification Rules
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# This file controls how incomplete tasks are automatically grouped into the
+# three buckets shown in the task view: Now, Not Now, and Later.
+#
+# HOW EVALUATION WORKS
+# ─────────────────────
+# 1. Only incomplete tasks are classified. Completed tasks are never grouped.
+# 2. Buckets are checked in order: [now] → [not_now] → [later].
+# 3. A task is placed in the FIRST bucket whose conditions match.
+# 4. Within a bucket, conditions are OR'd — any single match qualifies.
+# 5. [later] is always the fallback. Its conditions are never evaluated.
+#
+# RESTARTING THE SERVER
+# ──────────────────────
+# Edit this file, then restart the task API server for changes to take effect:
+#   npm run start:api
+#
+# To use a different config file path, set the environment variable:
+#   CLASSIFICATION_CONFIG=/path/to/your/rules.toml
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# ── Now ───────────────────────────────────────────────────────────────────────
+#
+# Tasks that need immediate attention.
+#
+[now]
+
+# The label shown in the UI for this bucket (filter button, section header,
+# and tag pill on each task card).
+label = "Now"
+
+# overdue — match tasks whose due date is TODAY or in the PAST.
+# Set to false to disable due-date-based matching for this bucket.
+overdue = true
+
+# priorities — match tasks whose priority equals one of the listed values.
+# Valid priority values: "high", "normal", "low", "none"
+# Use an empty list [] to disable priority-based matching for this bucket.
+priorities = ["high"]
+
+
+# ── Not Now ───────────────────────────────────────────────────────────────────
+#
+# Tasks that are planned but not yet urgent.
+#
+[not_now]
+
+label = "Not Now"
+
+# future_due — match tasks whose due date is AFTER today.
+# Set to false to disable due-date-based matching for this bucket.
+future_due = true
+
+# priorities — see [now] for valid values.
+priorities = ["normal"]
+
+
+# ── Later ─────────────────────────────────────────────────────────────────────
+#
+# Catch-all bucket for everything else — tasks with no due date and low/no
+# priority that did not match [now] or [not_now].
+#
+# This bucket has no conditions; it always captures remaining tasks.
+# Only the label is configurable here.
+#
+[later]
+
+label = "Later"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CUSTOMIZATION EXAMPLES
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Example 1 — Rename the buckets (Urgent / Upcoming / Someday):
+#
+#   [now]
+#   label      = "Urgent"
+#   overdue    = true
+#   priorities = ["high"]
+#
+#   [not_now]
+#   label      = "Upcoming"
+#   future_due = true
+#   priorities = ["normal"]
+#
+#   [later]
+#   label = "Someday"
+#
+#
+# Example 2 — Make "Now" due-date-only (ignore priority):
+#
+#   [now]
+#   label      = "Now"
+#   overdue    = true
+#   priorities = []         # empty list disables priority matching
+#
+#   [not_now]
+#   label      = "Scheduled"
+#   future_due = true
+#   priorities = []
+#
+#   [later]
+#   label = "Later"
+#
+#
+# Example 3 — Promote "normal" priority tasks into "Now":
+#
+#   [now]
+#   label      = "Now"
+#   overdue    = true
+#   priorities = ["high", "normal"]
+#
+#   [not_now]
+#   label      = "Not Now"
+#   future_due = true
+#   priorities = []
+#
+#   [later]
+#   label = "Later"
+#
+# ─────────────────────────────────────────────────────────────────────────────

@@ -2,12 +2,38 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const fs = require('fs');
+const path = require('path');
+const TOML = require('@iarna/toml');
 
 const AppleRemindersProvider = require('./providers/apple');
 const MicrosoftTasksProvider = require('./providers/microsoft');
 const GoogleTasksProvider = require('./providers/google');
 const AuthService = require('./auth/authService');
 const UserService = require('./auth/userService');
+
+// Load classification config from TOML (once at startup)
+const DEFAULT_CLASSIFICATION = {
+  now:     { label: 'Now',     overdue: true, priorities: ['high'] },
+  not_now: { label: 'Not Now', future_due: true, priorities: ['normal'] },
+  later:   { label: 'Later' }
+};
+
+function loadClassificationConfig() {
+  const configPath = process.env.CLASSIFICATION_CONFIG
+    || path.join(__dirname, '..', 'config', 'classification.toml');
+  try {
+    const raw = fs.readFileSync(configPath, 'utf-8');
+    const parsed = TOML.parse(raw);
+    console.log(`Classification config loaded from ${configPath}`);
+    return parsed;
+  } catch (err) {
+    console.warn(`Could not load classification config (${err.message}); using defaults.`);
+    return DEFAULT_CLASSIFICATION;
+  }
+}
+
+const classificationConfig = loadClassificationConfig();
 
 const app = express();
 const API_PORT = process.env.API_PORT || process.env.PORT || 3500;
@@ -118,6 +144,11 @@ async function initializeProvider(provider, providerName, userId) {
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Classification rules — public so the web UI can fetch them without auth
+app.get('/api/config/classification', (req, res) => {
+  res.json(classificationConfig);
 });
 
 app.get('/api/providers', (req, res) => {
