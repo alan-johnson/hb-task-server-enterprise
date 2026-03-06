@@ -5,22 +5,31 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "start:api": "node src/task-server.js",
+    "start:web": "node src/web-server.js",
+    "dev:api": "nodemon src/task-server.js",
+    "dev:web": "nodemon src/web-server.js",
+    "start:all": "concurrently \"npm run start:api\" \"npm run start:web\"",
+    "dev:all": "concurrently \"npm run dev:api\" \"npm run dev:web\""
   },
   "dependencies": {
-    "express": "^4.18.2",
+    "@azure/identity": "^4.0.0",
+    "@iarna/toml": "^2.2.5",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "bcrypt": "^5.1.1",
+    "body-parser": "^1.20.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "@microsoft/microsoft-graph-client": "^3.0.7",
-    "@azure/identity": "^4.0.0",
+    "express": "^4.18.2",
     "googleapis": "^126.0.1",
-    "body-parser": "^1.20.2",
+    "http-proxy-middleware": "^2.0.6",
+    "ioredis": "^5.3.2",
     "jsonwebtoken": "^9.0.2",
-    "bcrypt": "^5.1.1",
-    "pg": "^8.12.0",
-    "ioredis": "^5.3.2"
+    "pg": "^8.12.0"
   },
   "devDependencies": {
+    "concurrently": "^8.2.2",
     "nodemon": "^3.0.1"
   }
 }
