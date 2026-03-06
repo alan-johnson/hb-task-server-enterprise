@@ -29,18 +29,21 @@ echo "  Redis is ready."
 # ── Start servers ───────────────────────────────────────────────────────────
 
 cd "$PROJECT_DIR"
+mkdir -p logs
 
 echo ""
 echo "Starting task API server..."
-node src/task-server.js &
+nohup node src/task-server.js >> logs/task-server.log 2>&1 &
 API_PID=$!
+disown $API_PID
 
 echo "Starting web server..."
-node src/web-server.js &
+nohup node src/web-server.js >> logs/web-server.log 2>&1 &
 WEB_PID=$!
+disown $WEB_PID
 
 echo ""
 echo "Both servers running in the background."
-echo "  Task API server PID: $API_PID"
-echo "  Web server PID:      $WEB_PID"
+echo "  Task API server PID: $API_PID  (logs/task-server.log)"
+echo "  Web server PID:      $WEB_PID  (logs/web-server.log)"
 echo "Run scripts/stop-all.sh to stop them."
