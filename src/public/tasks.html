@@ -113,11 +113,12 @@
     const p = PROVIDERS[provider] || { label: provider, icon: '📋' };
 
     // Module state
-    let tasksData      = [];
-    let showCompleted  = false;
-    let editingTaskId  = null;
-    let deletingTaskId = null;
-    let activeFilter   = 'all';
+    let tasksData             = [];
+    let showCompleted         = false;
+    let editingTaskId         = null;
+    let deletingTaskId        = null;
+    let activeFilter          = 'all';
+    let classificationConfig  = null;
 
     // Hide priority selector for Google (no priority field)
     if (provider === 'google') {
@@ -163,9 +164,11 @@
 
     function taskById(id) { return tasksData.find(t => t.id === id); }
 
-    // ── Priority classification ─────────────────────────────────
+    // ── Classification helpers ──────────────────────────────────
 
+    // Returns the internal bucket key: 'now' | 'not_now' | 'later'
     function classifyTask(task) {
+      const cfg = classificationConfig;
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
@@ -180,14 +183,29 @@
         }
       }
 
-      const priority = task.priority || 'low';
-      const isUrgent    = dueDate && dueDate <= today;
-      const hasFutureDue = dueDate && dueDate > today;
+      const priority  = task.priority || 'low';
+      const isOverdue = dueDate && dueDate <= today;
+      const isFuture  = dueDate && dueDate > today;
 
-      if (isUrgent || priority === 'high')             return 'Now';
-      if (hasFutureDue || priority === 'normal')        return 'Not Now';
-      return 'Later';
+      const nowMatch = (cfg.now.overdue && isOverdue) ||
+                       (cfg.now.priorities && cfg.now.priorities.includes(priority));
+      if (nowMatch) return 'now';
+
+      const notNowMatch = (cfg.not_now.future_due && isFuture) ||
+                          (cfg.not_now.priorities && cfg.not_now.priorities.includes(priority));
+      if (notNowMatch) return 'not_now';
+
+      return 'later';
     }
+
+    // Display label for a bucket key
+    function bucketLabel(key) {
+      if (!classificationConfig) return key;
+      return { now: classificationConfig.now.label, not_now: classificationConfig.not_now.label, later: classificationConfig.later.label }[key] || key;
+    }
+
+    // CSS class fragment for a bucket key ('not_now' → 'not-now')
+    function bucketCss(key) { return key.replace('_', '-'); }
 
     function toggleFilterDropdown() {
       const wrap = document.getElementById('filter-dropdown-wrap');
@@ -208,16 +226,24 @@
       }
     });
 
+    // Rebuild filter dropdown labels from the loaded config
+    function buildFilterDropdown() {
+      const cfg = classificationConfig;
+      if (!cfg) return;
+      document.getElementById('filter-dropdown').innerHTML = `
+        <button class="filter-option filter-option-active" data-filter="all"     onclick="setFilter('all')"     role="menuitem">All</button>
+        <button class="filter-option"                      data-filter="now"     onclick="setFilter('now')"     role="menuitem">${escHtml(cfg.now.label)}</button>
+        <button class="filter-option"                      data-filter="not_now" onclick="setFilter('not_now')" role="menuitem">${escHtml(cfg.not_now.label)}</button>
+        <button class="filter-option"                      data-filter="later"   onclick="setFilter('later')"   role="menuitem">${escHtml(cfg.later.label)}</button>
+      `;
+    }
+
     function setFilter(filter) {
       activeFilter = filter;
-      // Update dropdown option active state
       document.querySelectorAll('.filter-option').forEach(btn => {
         btn.classList.toggle('filter-option-active', btn.dataset.filter === filter);
       });
-      // Update icon button label
-      const labels = { all: 'All', 'Now': 'Now', 'Not Now': 'Not Now', 'Later': 'Later' };
-      document.getElementById('filter-label').textContent = labels[filter] || filter;
-      // Highlight icon button when a non-default filter is active
+      document.getElementById('filter-label').textContent = filter === 'all' ? 'All' : bucketLabel(filter);
       document.getElementById('filter-icon-btn').classList.toggle('filter-icon-btn-active', filter !== 'all');
       closeFilterDropdown();
       const shown = showCompleted ? tasksData : tasksData.filter(t => !t.completed);
@@ -250,13 +276,13 @@
       let html = '';
 
       if (showingAll && filtered.length) {
-        // Group incomplete tasks by classification tag
-        const groups = { 'Now': [], 'Not Now': [], 'Later': [] };
+        const groups = { now: [], not_now: [], later: [] };
         for (const t of filtered) groups[classifyTask(t)].push(t);
-        for (const [label, items] of Object.entries(groups)) {
-          if (!items.length) continue;
-          html += `<div class="tasks-section-label tag-section-${label.replace(' ', '-').toLowerCase()}">${label} (${items.length})</div>`;
-          html += items.map(t => taskCard(t)).join('');
+        for (const key of ['now', 'not_now', 'later']) {
+          if (!groups[key].length) continue;
+          const label = bucketLabel(key);
+          html += `<div class="tasks-section-label tag-section-${bucketCss(key)}">${label} (${groups[key].length})</div>`;
+          html += groups[key].map(t => taskCard(t)).join('');
         }
       } else {
         html += filtered.map(t => taskCard(t)).join('');
@@ -273,8 +299,8 @@
 
     function taskCard(task) {
       const done    = task.completed;
-      const tag     = done ? null : classifyTask(task);
-      const tagPill = tag ? `<span class="tag-pill tag-pill-${tag.replace(' ', '-').toLowerCase()}">${tag}</span>` : '';
+      const tag     = done ? null : classifyTask(task);  // bucket key or null
+      const tagPill = tag ? `<span class="tag-pill tag-pill-${bucketCss(tag)}">${escHtml(bucketLabel(tag))}</span>` : '';
       const due     = task.dueDate ? `<span class="task-due">Due ${formatDate(task.dueDate)}</span>` : '';
       const updated = task.updated ? `<span class="task-due">Updated ${formatDate(task.updated)}</span>` : '';
       const notes   = task.notes   ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
@@ -285,7 +311,7 @@
         : `<button class="task-check task-check-btn" title="Mark complete" onclick="completeTask('${escHtml(task.id)}')">○</button>`;
 
       return `
-        <div class="task-card${done ? ' task-card-done' : ''}${tag ? ` task-card-${tag.replace(' ', '-').toLowerCase()}` : ''}" data-task-id="${escHtml(task.id)}">
+        <div class="task-card${done ? ' task-card-done' : ''}${tag ? ` task-card-${bucketCss(tag)}` : ''}" data-task-id="${escHtml(task.id)}">
           ${completeBtn}
           <div class="task-body${hasDetails ? ' task-body-expandable' : ''}"
                ${hasDetails ? `onclick="toggleExpand(this)"` : ''}>
@@ -496,6 +522,13 @@
           `<div class="empty-state">No list selected. <a href="/lists.html">Go back to lists.</a></div>`;
         return;
       }
+
+      // Load classification config before rendering anything
+      try {
+        const cfgRes = await fetch('/api/config/classification');
+        if (cfgRes.ok) classificationConfig = await cfgRes.json();
+      } catch { /* use null — classifyTask won't be called before config loads */ }
+      buildFilterDropdown();
 
       try {
         const res = await fetch('/auth/me', { headers: authHeaders() });
