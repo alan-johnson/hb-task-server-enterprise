@@ -18,7 +18,7 @@ const useHttps = !!(SSL_KEY && SSL_CERT);
 
 // Proxy API and auth routes to the task service
 app.use(
-  ['/api', '/auth', '/health'],
+  ['/api', '/auth', '/billing', '/health'],
   createProxyMiddleware({
     target: API_URL,
     changeOrigin: true,

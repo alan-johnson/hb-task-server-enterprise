@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Task Server — Subscribe</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .pricing-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+    .pricing-card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 2px 16px rgba(24,36,113,.10);
+      padding: 2.5rem 2rem;
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+    }
+    .pricing-card h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #182471;
+      margin: 0 0 .4rem;
+    }
+    .pricing-card .tagline {
+      color: #666;
+      font-size: .95rem;
+      margin-bottom: 2rem;
+    }
+    .price-display {
+      margin: 1.5rem 0;
+    }
+    .price-amount {
+      font-size: 3rem;
+      font-weight: 800;
+      color: #182471;
+      line-height: 1;
+    }
+    .price-period {
+      font-size: .95rem;
+      color: #888;
+      margin-top: .25rem;
+    }
+    .feature-list {
+      list-style: none;
+      padding: 0;
+      margin: 1.75rem 0;
+      text-align: left;
+    }
+    .feature-list li {
+      padding: .45rem 0;
+      font-size: .95rem;
+      color: #444;
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+    }
+    .feature-list li::before {
+      content: '';
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      background: #6fb768;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 6l3 3 5-5' stroke='%23fff' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: center;
+    }
+    .divider {
+      border: none;
+      border-top: 1px solid #eef0f8;
+      margin: 1.5rem 0;
+    }
+    .btn-subscribe {
+      width: 100%;
+      padding: .9rem;
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    .already-subscribed {
+      margin-top: 1rem;
+      font-size: .85rem;
+      color: #888;
+    }
+    .already-subscribed a { color: #2664c8; }
+    #error-msg { margin-bottom: 1rem; }
+  </style>
+</head>
+<body class="auth-page">
+  <header class="site-header hero">
+    <img src="/images/handsbreadth-logo-web.png" alt="handsbreadth — Solutions in the Palm of Your Hand">
+  </header>
+  <div class="pricing-wrap">
+  <div class="pricing-card">
+    <h1>hb Task Server</h1>
+    <p class="tagline">Unified access to your tasks across Microsoft, Google, and Apple.</p>
+
+    <div class="price-display">
+      <div class="price-amount" id="price-amount">$9.99</div>
+      <div class="price-period">per month, cancel anytime</div>
+    </div>
+
+    <ul class="feature-list">
+      <li>Connect Microsoft To Do, Google Tasks &amp; Apple Reminders</li>
+      <li>View and manage all your lists in one place</li>
+      <li>Smart task classification (Now / Not Now / Later)</li>
+      <li>Secure, encrypted credential storage</li>
+      <li>Multi-device access via any browser</li>
+    </ul>
+
+    <hr class="divider">
+
+    <div id="error-msg" class="error-msg" style="display:none"></div>
+    <button class="btn btn-primary btn-subscribe" id="subscribe-btn" onclick="startCheckout()">
+      Subscribe Now
+    </button>
+    <p class="already-subscribed">
+      Already subscribed? <a href="/lists.html">Go to your tasks</a>
+    </p>
+  </div>
+  </div>
+  <footer class="site-footer">Copyright 2026, handsbreadth LLC</footer>
+
+  <script>
+    const token = localStorage.getItem('token');
+    if (!token) { window.location.href = '/'; }
+
+    // If already active, skip straight to the app
+    fetch('/billing/status', { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { if (d.subscriptionStatus === 'active') window.location.href = '/lists.html'; })
+      .catch(() => {});
+
+    async function startCheckout() {
+      const btn = document.getElementById('subscribe-btn');
+      const err = document.getElementById('error-msg');
+      err.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'Redirecting to checkout…';
+      try {
+        const res = await fetch('/billing/create-checkout-session', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Could not start checkout');
+        window.location.href = data.url;
+      } catch (e) {
+        err.textContent = e.message;
+        err.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Subscribe Now';
+      }
+    }
+  </script>
+</body>
+</html>

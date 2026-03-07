@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Task Server — Subscription Confirmed</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .success-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+    .success-card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 2px 16px rgba(24,36,113,.10);
+      padding: 2.5rem 2rem;
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+    }
+    .success-icon {
+      width: 64px;
+      height: 64px;
+      background: #6fb768;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 1.25rem;
+    }
+    .success-icon svg {
+      width: 32px;
+      height: 32px;
+    }
+    .success-card h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #182471;
+      margin: 0 0 .6rem;
+    }
+    .success-card p {
+      color: #555;
+      font-size: .97rem;
+      line-height: 1.6;
+      margin: 0 0 1.75rem;
+    }
+    .btn-go {
+      width: 100%;
+      padding: .9rem;
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body class="auth-page">
+  <header class="site-header hero">
+    <img src="/images/handsbreadth-logo-web.png" alt="handsbreadth — Solutions in the Palm of Your Hand">
+  </header>
+  <div class="success-wrap">
+  <div class="success-card">
+    <div class="success-icon">
+      <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M6 16l7 7 13-13" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <h1>You're all set!</h1>
+    <p>Your subscription to <strong>hb Task Server</strong> is now active. Connect your task providers and start managing all your lists in one place.</p>
+    <a href="/settings.html" class="btn btn-primary btn-go">Connect Your Task Providers</a>
+  </div>
+  </div>
+  <footer class="site-footer">Copyright 2026, handsbreadth LLC</footer>
+
+  <script>
+    const token = localStorage.getItem('token');
+    if (!token) { window.location.href = '/'; }
+  </script>
+</body>
+</html>

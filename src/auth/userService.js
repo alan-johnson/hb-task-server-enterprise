@@ -78,7 +78,7 @@ class UserService {
     }
 
     const result = await pool.query(
-      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed FROM users WHERE user_id = $1',
+      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed, stripe_customer_id, subscription_status FROM users WHERE user_id = $1',
       [userId]
     );
     if (!result.rows[0]) return null;
@@ -87,7 +87,7 @@ class UserService {
     await cache.set(`user:id:${userId}`,             JSON.stringify(user));
     await cache.set(`user:name:${user.username}`,    JSON.stringify(user));
 
-    return { userId: user.userId, username: user.username, email: user.email, defaultProvider: user.defaultProvider, showCompleted: user.showCompleted };
+    return { userId: user.userId, username: user.username, email: user.email, defaultProvider: user.defaultProvider, showCompleted: user.showCompleted, stripeCustomerId: user.stripeCustomerId, subscriptionStatus: user.subscriptionStatus };
   }
 
   // ---------- storeCredentials ----------
@@ -170,7 +170,7 @@ class UserService {
     if (cached) return JSON.parse(cached);
 
     const result = await pool.query(
-      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed FROM users WHERE username = $1',
+      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed, stripe_customer_id, subscription_status FROM users WHERE username = $1',
       [username]
     );
     if (!result.rows[0]) return null;
@@ -226,15 +226,27 @@ class UserService {
     return false;
   }
 
+  async updateSubscription(userId, stripeCustomerId, status) {
+    await pool.query(
+      'UPDATE users SET stripe_customer_id = $2, subscription_status = $3 WHERE user_id = $1',
+      [userId, stripeCustomerId, status]
+    );
+    await cache.del(`user:id:${userId}`);
+    const result = await pool.query('SELECT username FROM users WHERE user_id = $1', [userId]);
+    if (result.rows[0]) await cache.del(`user:name:${result.rows[0].username}`);
+  }
+
   _mapRow(row) {
     return {
-      userId:          row.user_id,
-      username:        row.username,
-      email:           row.email,
-      passwordHash:    row.password_hash,
-      createdAt:       row.created_at.toISOString(),
-      defaultProvider: row.default_provider,
-      showCompleted:   row.show_completed,
+      userId:             row.user_id,
+      username:           row.username,
+      email:              row.email,
+      passwordHash:       row.password_hash,
+      createdAt:          row.created_at.toISOString(),
+      defaultProvider:    row.default_provider,
+      showCompleted:      row.show_completed,
+      stripeCustomerId:   row.stripe_customer_id  || null,
+      subscriptionStatus: row.subscription_status || 'none',
     };
   }
 }
