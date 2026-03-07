@@ -12,6 +12,10 @@ const GoogleTasksProvider = require('./providers/google');
 const AuthService = require('./auth/authService');
 const UserService = require('./auth/userService');
 
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? require('stripe')(process.env.STRIPE_SECRET_KEY)
+  : null;
+
 // Load classification config from TOML (once at startup)
 const DEFAULT_CLASSIFICATION = {
   now:     { label: 'Now',     overdue: true, priorities: ['high'] },
@@ -71,6 +75,49 @@ const TTL = {
 // Middleware
 const allowedOrigin = process.env.ALLOWED_ORIGIN || '*';
 app.use(cors({ origin: allowedOrigin }));
+
+// Stripe webhook needs raw body — must be registered before bodyParser.json()
+app.post('/billing/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: 'Billing not configured' });
+  const sig = req.headers['stripe-signature'];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!webhookSecret) return res.status(503).json({ error: 'Webhook secret not configured' });
+
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+  } catch (err) {
+    console.error('Stripe webhook signature error:', err.message);
+    return res.status(400).json({ error: `Webhook error: ${err.message}` });
+  }
+
+  try {
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      const userId = session.metadata?.userId;
+      if (userId) {
+        await userService.updateSubscription(userId, session.customer, 'active');
+        console.log(`Subscription activated for user ${userId}`);
+      }
+    } else if (event.type === 'customer.subscription.deleted') {
+      const subscription = event.data.object;
+      const { pool } = require('./db/db');
+      const result = await pool.query(
+        'SELECT user_id FROM users WHERE stripe_customer_id = $1',
+        [subscription.customer]
+      );
+      if (result.rows[0]) {
+        await userService.updateSubscription(result.rows[0].user_id, subscription.customer, 'canceled');
+        console.log(`Subscription canceled for customer ${subscription.customer}`);
+      }
+    }
+    res.json({ received: true });
+  } catch (err) {
+    console.error('Webhook handler error:', err.message);
+    res.status(500).json({ error: 'Webhook handler failed' });
+  }
+});
+
 app.use(bodyParser.json());
 
 // Initialize services
@@ -641,6 +688,53 @@ app.delete('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), async 
     res.json({ provider: providerName, user: req.user.username, listId, taskId, ...result });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Billing Routes (Stripe)
+// ============================================
+
+// GET /billing/status — subscription status for the current user
+app.get('/billing/status', authService.requireAuth(), async (req, res) => {
+  try {
+    const user = await userService.getUser(req.user.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ subscriptionStatus: user.subscriptionStatus || 'none' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /billing/create-checkout-session — create a Stripe Checkout session
+app.post('/billing/create-checkout-session', authService.requireAuth(), async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: 'Billing not configured' });
+  if (!process.env.STRIPE_PRICE_ID) return res.status(503).json({ error: 'STRIPE_PRICE_ID not configured' });
+
+  try {
+    const user = await userService.getUser(req.user.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const baseUrl = process.env.WEB_URL || 'http://localhost';
+    const sessionParams = {
+      mode: 'subscription',
+      line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
+      success_url: `${baseUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/pricing.html`,
+      metadata: { userId: req.user.userId },
+    };
+
+    if (user.stripeCustomerId) {
+      sessionParams.customer = user.stripeCustomerId;
+    } else if (user.email) {
+      sessionParams.customer_email = user.email;
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error('Stripe checkout error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
