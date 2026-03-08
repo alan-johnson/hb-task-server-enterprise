@@ -45,13 +45,34 @@
       font-size: 1.6rem;
       font-weight: 700;
       color: #182471;
-      margin: 0 0 .6rem;
+      margin: 0 0 .5rem;
     }
-    .success-card p {
-      color: #555;
-      font-size: .97rem;
-      line-height: 1.6;
-      margin: 0 0 1.75rem;
+    .plan-summary {
+      background: #f4f6fb;
+      border-radius: 10px;
+      padding: .9rem 1.1rem;
+      margin: 1rem 0 1.5rem;
+      text-align: left;
+    }
+    .plan-summary-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: .9rem;
+      color: #444;
+      padding: .2rem 0;
+    }
+    .plan-summary-row .label {
+      color: #888;
+      font-size: .83rem;
+    }
+    .plan-summary-row .value {
+      font-weight: 600;
+      color: #182471;
+    }
+    .ref-id {
+      font-size: .75rem;
+      color: #bbb;
+      margin-top: .5rem;
     }
     .btn-go {
       width: 100%;
@@ -73,8 +94,23 @@
       </svg>
     </div>
     <h1>You're all set!</h1>
-    <p>Your subscription to <strong>hb Task Server</strong> is now active. Connect your task providers and start managing all your lists in one place.</p>
-    <a href="/settings.html" class="btn btn-primary btn-go">Connect Your Task Providers</a>
+
+    <div class="plan-summary" id="plan-summary" style="display:none">
+      <div class="plan-summary-row">
+        <span class="label">Plan</span>
+        <span class="value" id="plan-label">—</span>
+      </div>
+      <div class="plan-summary-row" id="period-row" style="display:none">
+        <span class="label" id="period-label">Renews</span>
+        <span class="value" id="period-value">—</span>
+      </div>
+    </div>
+
+    <div class="ref-id" id="ref-id"></div>
+
+    <button class="btn btn-primary btn-go" id="continue-btn" onclick="continueToApp()" disabled>
+      Continue
+    </button>
   </div>
   </div>
   <footer class="site-footer">Copyright 2026, handsbreadth LLC</footer>
@@ -82,6 +118,79 @@
   <script>
     const token = localStorage.getItem('token');
     if (!token) { window.location.href = '/'; }
+
+    function authHeaders() {
+      return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+    }
+
+    function fmtDate(iso) {
+      if (!iso) return null;
+      return new Date(iso).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+    }
+
+    async function loadSessionInfo(sessionId) {
+      try {
+        const res = await fetch(`/billing/session-info?session_id=${encodeURIComponent(sessionId)}`, {
+          headers: authHeaders()
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+
+        let planLabel;
+        if (data.plan === 'annual') {
+          planLabel = 'Annual subscription';
+        } else if (data.plan === 'trial') {
+          planLabel = '14-day free trial';
+        } else {
+          planLabel = 'Monthly subscription';
+        }
+        document.getElementById('plan-label').textContent = planLabel;
+
+        const periodRow = document.getElementById('period-row');
+        if (data.trialEnd) {
+          document.getElementById('period-label').textContent = 'Trial ends';
+          document.getElementById('period-value').textContent = fmtDate(data.trialEnd);
+          periodRow.style.display = '';
+        } else if (data.currentPeriodEnd) {
+          document.getElementById('period-label').textContent = data.plan === 'annual' ? 'Renews' : 'Next billing';
+          document.getElementById('period-value').textContent = fmtDate(data.currentPeriodEnd);
+          periodRow.style.display = '';
+        }
+
+        document.getElementById('plan-summary').style.display = '';
+
+        // Show truncated session ID as a reference
+        const short = sessionId.replace(/^cs_[a-z]+_/, '').slice(-12).toUpperCase();
+        document.getElementById('ref-id').textContent = `Ref: …${short}`;
+      } catch {
+        // Non-fatal — session info is informational only
+      }
+    }
+
+    async function continueToApp() {
+      const btn = document.getElementById('continue-btn');
+      btn.disabled = true;
+      btn.textContent = 'Loading…';
+      try {
+        const res = await fetch('/auth/providers/status', { headers: authHeaders() });
+        const status = await res.json();
+        const anyConnected = Object.values(status).some(Boolean);
+        window.location.href = anyConnected ? '/lists.html' : '/settings.html';
+      } catch {
+        window.location.href = '/settings.html';
+      }
+    }
+
+    // Load session info if we have a session_id, then enable the button
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('session_id');
+    if (sessionId) {
+      loadSessionInfo(sessionId).finally(() => {
+        document.getElementById('continue-btn').disabled = false;
+      });
+    } else {
+      document.getElementById('continue-btn').disabled = false;
+    }
   </script>
 </body>
 </html>

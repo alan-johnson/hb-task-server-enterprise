@@ -29,3 +29,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS classification_rules JSONB;
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT NOT NULL DEFAULT 'none';
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified           BOOLEAN    NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token       TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token_expires TIMESTAMPTZ;
