@@ -33,6 +33,39 @@
       </div>
       <button type="submit" class="btn btn-primary">Sign In</button>
     </form>
+    <div style="text-align:right;margin-top:.4rem">
+      <a href="#" id="forgot-link" style="font-size:.82rem;color:#182471" onclick="showForgotPassword(event)">Forgot password?</a>
+    </div>
+
+    <!-- Forgot-password panel -->
+    <div id="forgot-password-panel" style="display:none">
+      <p style="color:#555;font-size:.93rem;margin:0 0 1rem;line-height:1.5">
+        Enter your email address and we'll send you a link to reset your password.
+      </p>
+      <div class="form-group">
+        <label for="forgot-email">Email</label>
+        <input id="forgot-email" type="email" autocomplete="email" required>
+      </div>
+      <button class="btn btn-primary" onclick="doForgotPassword(event)">Send Reset Link</button>
+      <div style="margin-top:.75rem;text-align:center">
+        <a href="#" style="font-size:.82rem;color:#182471" onclick="showLogin(event)">Back to Sign In</a>
+      </div>
+    </div>
+
+    <!-- Post-forgot confirmation -->
+    <div id="forgot-sent-notice" style="display:none;text-align:center">
+      <div style="width:56px;height:56px;background:#6fb768;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem">
+        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" width="28" height="28">
+          <path d="M4 8h24v16H4z" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M4 8l12 10L28 8" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <h2 style="color:#182471;font-size:1.2rem;margin:0 0 .5rem">Check your email</h2>
+      <p style="color:#555;font-size:.93rem;line-height:1.6;margin:0 0 1rem">
+        If that email is registered, a reset link has been sent. The link expires in 1 hour.
+      </p>
+      <a href="#" style="font-size:.82rem;color:#182471" onclick="showLogin(event)">Back to Sign In</a>
+    </div>
 
     <!-- Unverified-email notice (shown after failed login due to unverified address) -->
     <div id="unverified-notice" style="display:none;margin-top:.75rem;padding:.85rem 1rem;background:#fff8e1;border:1px solid #ffe082;border-radius:8px;font-size:.88rem;color:#555;line-height:1.5">
@@ -94,14 +127,17 @@
 
     function toggleForm() {
       showingLogin = !showingLogin;
-      document.getElementById('login-form').style.display          = showingLogin ? '' : 'none';
-      document.getElementById('register-form').style.display        = showingLogin ? 'none' : '';
-      document.getElementById('check-email-notice').style.display   = 'none';
-      document.getElementById('unverified-notice').style.display    = 'none';
-      document.getElementById('form-title').textContent             = showingLogin ? 'Sign In' : 'Create Account';
-      document.getElementById('toggle-text').textContent            = showingLogin ? "Don't have an account?" : 'Already have an account?';
-      document.getElementById('toggle-link').textContent            = showingLogin ? 'Register' : 'Sign In';
-      document.getElementById('toggle-area').style.display          = '';
+      document.getElementById('login-form').style.display            = showingLogin ? '' : 'none';
+      document.getElementById('forgot-link').style.display            = showingLogin ? '' : 'none';
+      document.getElementById('register-form').style.display          = showingLogin ? 'none' : '';
+      document.getElementById('check-email-notice').style.display     = 'none';
+      document.getElementById('unverified-notice').style.display      = 'none';
+      document.getElementById('forgot-password-panel').style.display  = 'none';
+      document.getElementById('forgot-sent-notice').style.display     = 'none';
+      document.getElementById('form-title').textContent               = showingLogin ? 'Sign In' : 'Create Account';
+      document.getElementById('toggle-text').textContent              = showingLogin ? "Don't have an account?" : 'Already have an account?';
+      document.getElementById('toggle-link').textContent              = showingLogin ? 'Register' : 'Sign In';
+      document.getElementById('toggle-area').style.display            = '';
       hideError();
     }
 
@@ -184,6 +220,57 @@
       e.preventDefault();
       await doResend(lastUsername, e.target);
     });
+
+    // ── Forgot password ──────────────────────────────────────────
+    function showForgotPassword(e) {
+      e.preventDefault();
+      hideError();
+      document.getElementById('login-form').style.display          = 'none';
+      document.getElementById('forgot-link').style.display          = 'none';
+      document.getElementById('unverified-notice').style.display    = 'none';
+      document.getElementById('forgot-password-panel').style.display = '';
+      document.getElementById('forgot-sent-notice').style.display   = 'none';
+      document.getElementById('toggle-area').style.display          = 'none';
+      document.getElementById('form-title').textContent             = 'Reset Password';
+    }
+
+    function showLogin(e) {
+      e.preventDefault();
+      hideError();
+      document.getElementById('login-form').style.display            = '';
+      document.getElementById('forgot-link').style.display            = '';
+      document.getElementById('forgot-password-panel').style.display  = 'none';
+      document.getElementById('forgot-sent-notice').style.display     = 'none';
+      document.getElementById('unverified-notice').style.display      = 'none';
+      document.getElementById('toggle-area').style.display            = '';
+      document.getElementById('form-title').textContent               = 'Sign In';
+      showingLogin = true;
+    }
+
+    async function doForgotPassword(e) {
+      e.preventDefault();
+      hideError();
+      const email = document.getElementById('forgot-email').value.trim();
+      if (!email) { showError('Please enter your email address.'); return; }
+      const btn = e.target;
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+      try {
+        await fetch('/auth/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        // Always show the confirmation panel regardless of whether the email matched
+        document.getElementById('forgot-password-panel').style.display = 'none';
+        document.getElementById('forgot-sent-notice').style.display    = '';
+      } catch {
+        showError('Could not reach the server. Is it running?');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Send Reset Link';
+      }
+    }
 
     // ── Shared resend helper ─────────────────────────────────────
     async function doResend(username, linkEl) {

@@ -214,6 +214,48 @@ class UserService {
     return this._getUserByUsername(username);
   }
 
+  // ---------- password reset ----------
+
+  async createPasswordResetToken(email) {
+    const result = await pool.query(
+      'SELECT user_id, username, email, email_verified FROM users WHERE email = $1',
+      [email]
+    );
+    const row = result.rows[0];
+    // Return null silently if not found or not verified — caller shows a generic message
+    if (!row || !row.email_verified) return null;
+
+    const token   = crypto.randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    await pool.query(
+      'UPDATE users SET password_reset_token = $2, password_reset_token_expires = $3 WHERE user_id = $1',
+      [row.user_id, token, expires.toISOString()]
+    );
+    await cache.del(`user:id:${row.user_id}`, `user:name:${row.username}`);
+    return { token, username: row.username, email: row.email };
+  }
+
+  async resetPassword(token, newPassword) {
+    const result = await pool.query(
+      'SELECT user_id, username, password_reset_token_expires FROM users WHERE password_reset_token = $1',
+      [token]
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error('Invalid or already used reset link.');
+    if (new Date(row.password_reset_token_expires) < new Date()) {
+      throw new Error('Reset link has expired. Please request a new one.');
+    }
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await pool.query(
+      `UPDATE users
+       SET password_hash = $2, password_reset_token = NULL, password_reset_token_expires = NULL
+       WHERE user_id = $1`,
+      [row.user_id, passwordHash]
+    );
+    await cache.del(`user:id:${row.user_id}`, `user:name:${row.username}`);
+    return { userId: row.user_id, username: row.username };
+  }
+
   // ---------- private helpers ----------
 
   async _getUserByUsername(username) {
