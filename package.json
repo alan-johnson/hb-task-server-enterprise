@@ -12,7 +12,8 @@
     "dev:web": "nodemon src/web-server.js",
     "start:all": "concurrently \"npm run start:api\" \"npm run start:web\"",
     "dev:all": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
-    "delete-test-user": "node scripts/delete-test-user.js"
+    "delete-test-user": "node scripts/delete-test-user.js",
+    "get-verify-url": "node scripts/get-verify-url.js"
   },
   "dependencies": {
     "@azure/identity": "^4.0.0",
