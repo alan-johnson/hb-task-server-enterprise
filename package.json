@@ -12,6 +12,7 @@
     "dev:web": "nodemon src/web-server.js",
     "start:all": "concurrently \"npm run start:api\" \"npm run start:web\"",
     "dev:all": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+    "create-admin": "node scripts/create-admin.js",
     "delete-test-user": "node scripts/delete-test-user.js",
     "get-verify-url": "node scripts/get-verify-url.js"
   },
