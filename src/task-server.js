@@ -6,7 +6,6 @@ const fs = require('fs');
 const path = require('path');
 const TOML = require('@iarna/toml');
 
-const AppleRemindersProvider = require('./providers/apple');
 const MicrosoftTasksProvider = require('./providers/microsoft');
 const GoogleTasksProvider = require('./providers/google');
 const AuthService = require('./auth/authService');
@@ -43,7 +42,6 @@ const classificationConfig = loadClassificationConfig();
 
 const app = express();
 const API_PORT = process.env.API_PORT || process.env.PORT || 3500;
-const APPLE_ENABLED = process.env.ENABLE_APPLE_PROVIDER === 'true';
 // Base URL of the web server — used to redirect browsers after OAuth callbacks.
 // If empty, relative redirects are used (works when this server is behind a proxy).
 const WEB_URL = (process.env.WEB_URL || '').replace(/\/$/, '');
@@ -134,7 +132,6 @@ userService.initialize().then(() => {
 
 // Provider factory - creates isolated instances per user
 const providerFactories = {
-  apple: () => new AppleRemindersProvider(),
   microsoft: (config) => new MicrosoftTasksProvider(config),
   google: (config) => new GoogleTasksProvider(config)
 };
@@ -148,14 +145,8 @@ function getProviderForUser(req) {
     throw new Error(`Invalid provider: ${providerName}`);
   }
 
-  if (providerName === 'apple' && !APPLE_ENABLED) {
-    throw new Error('Apple Reminders provider is not enabled on this server.');
-  }
-
   let provider;
-  if (providerName === 'apple') {
-    provider = factory();
-  } else if (providerName === 'microsoft') {
+  if (providerName === 'microsoft') {
     provider = factory({
       clientId:     process.env.MICROSOFT_CLIENT_ID,
       clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
@@ -175,8 +166,6 @@ function getProviderForUser(req) {
 
 // Initialize provider with user's credentials
 async function initializeProvider(provider, providerName, userId) {
-  if (providerName === 'apple') return;
-
   const credentials = await userService.getCredentials(userId, providerName);
 
   if (!credentials) {
@@ -205,7 +194,6 @@ app.get('/api/config/classification', (req, res) => {
 
 app.get('/api/providers', (req, res) => {
   const providers = ['microsoft', 'google'];
-  if (APPLE_ENABLED) providers.unshift('apple');
   res.json({ providers, default: process.env.DEFAULT_PROVIDER || 'microsoft' });
 });
 
@@ -338,7 +326,7 @@ app.post('/auth/refresh', authService.requireAuth(), (req, res) => {
 });
 
 app.get('/auth/providers/status', authService.requireAuth(), async (req, res) => {
-  const status = { apple: APPLE_ENABLED };
+  const status = {};
   await Promise.all(['microsoft', 'google'].map(async (p) => {
     const cacheKey = `status:${req.user.userId}:${p}`;
     const cached = cache.get(cacheKey);
@@ -511,7 +499,7 @@ app.patch('/auth/default-provider', authService.requireAuth(), async (req, res) 
   try {
     const { provider } = req.body;
 
-    const validProviders = APPLE_ENABLED ? ['apple', 'microsoft', 'google'] : ['microsoft', 'google'];
+    const validProviders = ['microsoft', 'google'];
     if (!validProviders.includes(provider)) {
       return res.status(400).json({ error: 'Invalid provider' });
     }
@@ -602,7 +590,6 @@ app.get('/api/tasks/unified', authService.requireAuth(), async (req, res) => {
 
   // Determine which providers are connected for this user
   const providerNames = [];
-  if (APPLE_ENABLED) providerNames.push('apple');
   for (const p of ['microsoft', 'google']) {
     const creds = await userService.getCredentials(userId, p);
     if (creds) providerNames.push(p);
@@ -883,6 +870,5 @@ app.use((err, req, res, next) => {
 app.listen(API_PORT, () => {
   console.log(`Task API service running on http://localhost:${API_PORT}`);
   console.log(`Default provider: ${process.env.DEFAULT_PROVIDER || 'microsoft'}`);
-  console.log(`Apple provider:   ${APPLE_ENABLED ? 'enabled' : 'disabled (set ENABLE_APPLE_PROVIDER=true to enable)'}`);
   console.log(`CORS origin:      ${allowedOrigin}`);
 });

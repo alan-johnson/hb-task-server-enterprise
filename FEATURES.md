@@ -9,8 +9,7 @@ A detailed breakdown of every feature in the server, with the benefit of each.
 1. [Task Provider Integration](#1-task-provider-integration)
    - [Microsoft Tasks](#11-microsoft-tasks)
    - [Google Tasks](#12-google-tasks)
-   - [Apple Reminders](#13-apple-reminders)
-   - [Unified Provider Interface](#14-unified-provider-interface)
+   - [Unified Provider Interface](#13-unified-provider-interface)
 2. [Authentication & Security](#2-authentication--security)
 3. [Multi-User Architecture](#3-multi-user-architecture)
 4. [Caching](#4-caching)
@@ -72,35 +71,9 @@ Connects to Google Tasks via the Google Tasks API v1 using OAuth 2.0.
 
 ---
 
-### 1.3 Apple Reminders
+### 1.3 Unified Provider Interface
 
-Connects to the local Reminders app on macOS via AppleScript. No OAuth or cloud account required.
-
-| Capability | Detail |
-|---|---|
-| List all reminder lists | Returns id, name |
-| Get tasks in a list | Returns id, name, completed, notes, dueDate |
-| Get task details | Full detail including createdDate |
-| Create a task | Supports title, notes |
-| Update a task | Sets name, notes, and due date via AppleScript; due date is converted from `YYYY-MM-DD` to `M/D/YYYY` format for AppleScript |
-| Delete a task | `delete` command via AppleScript |
-| Mark task complete | Sets completed property via AppleScript |
-| Opt-in activation | Disabled by default; enabled with `ENABLE_APPLE_PROVIDER=true` |
-| Non-blocking execution | AppleScript runs via async `execAsync` — does not block the Node.js event loop |
-| Large buffer | `maxBuffer: 10 MB` to handle large Reminders libraries without truncation |
-| String escaping | Special characters in task names and notes are escaped before being embedded in AppleScript |
-
-**Benefits:**
-- Zero OAuth setup — works out of the box on macOS with no external accounts or app registrations
-- Tasks live entirely on the user's device, with no data sent to a third-party API
-- Disabled by default prevents accidental activation on Linux or cloud servers where it would fail
-- Async execution ensures one slow AppleScript call does not stall other requests
-
----
-
-### 1.4 Unified Provider Interface
-
-All three providers expose an identical method surface:
+All providers expose an identical method surface:
 
 ```
 getLists()
@@ -117,7 +90,7 @@ deleteTask(listId, taskId)
 - The server routes never contain provider-specific logic — adding a new provider only requires implementing this interface
 - Clients use the same API endpoints regardless of which provider is active; only the `?provider=` query parameter changes
 - Task objects across all providers share a consistent shape (`id`, `name`, `completed`, `notes`, `dueDate`) with provider-specific fields added on top
-- Full CRUD is available on all three providers through a single consistent API surface
+- Full CRUD is available on all providers through a single consistent API surface
 
 ---
 
@@ -288,7 +261,7 @@ A lightweight in-memory store (`SimpleCache`) with automatic TTL expiry. No exte
 | Tasks (`tasks:{userId}:{provider}:{listId}`) | 30 seconds | Task create, update, complete, delete |
 
 **Benefits:**
-- Dramatically reduces calls to external task APIs (Microsoft Graph, Google Tasks API, AppleScript) for frequently-visited data
+- Dramatically reduces calls to external task APIs (Microsoft Graph, Google Tasks API) for frequently-visited data
 - TTLs are tuned to the data's volatility — lists and counts change infrequently and can tolerate 2-minute staleness; task detail is fresher at 30 seconds
 - No Redis required for single-instance deployments; caching still works entirely in memory
 - Automatic key expiry (checked on get) prevents stale data from accumulating indefinitely
@@ -373,7 +346,7 @@ A browser-based interface served as static files from `src/public/` directly by 
 ### Lists View (`/lists.html`)
 
 - Displays all task lists for all connected providers
-- Provider filter tabs (All / Microsoft / Google / Apple) persist selection in `localStorage`
+- Provider filter tabs (All / Microsoft / Google) persist selection in `localStorage`
 - Shows task count per list (loaded asynchronously after the list renders)
 - Redirects to `/settings.html?reconnect=true` if no providers are connected
 
@@ -390,6 +363,7 @@ A browser-based interface served as static files from `src/public/` directly by 
 ### Settings (`/settings.html`)
 
 - Connect and disconnect Microsoft Tasks and Google Tasks via OAuth
+
 - Displays live connection status for each provider (Connected ✓ / Connect button)
 - Set default provider per connected service
 - Toggle the `showCompleted` preference
@@ -508,7 +482,7 @@ Pass `"dueDate": null` to explicitly clear a due date. Invalidates the task list
 
 ### Default Provider
 
-Each user has a `defaultProvider` field (`microsoft`, `google`, or `apple`). Used as the fallback when `?provider=` is not specified in a request.
+Each user has a `defaultProvider` field (`microsoft` or `google`). Used as the fallback when `?provider=` is not specified in a request.
 
 **Benefits:**
 - Clients that don't specify a provider always get a meaningful response without error
@@ -584,7 +558,6 @@ Rules are defined server-wide in `config/classification.toml` and can be overrid
 | `GOOGLE_CLIENT_ID` | No | — | Google Cloud OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | No | — | Google Cloud OAuth client secret |
 | `GOOGLE_REDIRECT_URI` | No | — | Must match Google Cloud Console |
-| `ENABLE_APPLE_PROVIDER` | No | `false` | `true` only on local macOS |
 | `DEFAULT_PROVIDER` | No | `microsoft` | Default provider for new users |
 
 ### Auto Schema Migration
@@ -607,10 +580,6 @@ The web server supports HTTPS when `SSL_KEY_PATH` and `SSL_CERT_PATH` are set. A
 **Benefits:**
 - Web UIs served from a different origin can call the API without browser CORS errors
 - Supports integration with mobile webviews and third-party clients
-
-### Apple Provider Feature Flag
-
-`ENABLE_APPLE_PROVIDER=false` by default. Apple Reminders requires macOS and is deliberately disabled so it cannot accidentally activate on a Linux server.
 
 ### Development Scripts
 

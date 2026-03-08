@@ -4,7 +4,6 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
 
-const AppleRemindersProvider = require('./providers/apple');
 const MicrosoftTasksProvider = require('./providers/microsoft');
 const GoogleTasksProvider = require('./providers/google');
 const AuthService = require('./auth/authService');
@@ -12,7 +11,6 @@ const UserService = require('./auth/userService');
 
 const app = express();
 const PORT = process.env.PORT || 3500;
-const APPLE_ENABLED = process.env.ENABLE_APPLE_PROVIDER === 'true';
 
 // Simple in-memory TTL cache
 class SimpleCache {
@@ -58,7 +56,6 @@ userService.initialize().then(() => {
 
 // Provider factory - creates isolated instances per user
 const providerFactories = {
-  apple: () => new AppleRemindersProvider(),
   microsoft: (config) => new MicrosoftTasksProvider(config),
   google: (config) => new GoogleTasksProvider(config)
 };
@@ -72,15 +69,9 @@ function getProviderForUser(req) {
     throw new Error(`Invalid provider: ${providerName}`);
   }
 
-  if (providerName === 'apple' && !APPLE_ENABLED) {
-    throw new Error('Apple Reminders provider is not enabled on this server.');
-  }
-
   // Create provider with user-specific config
   let provider;
-  if (providerName === 'apple') {
-    provider = factory();
-  } else if (providerName === 'microsoft') {
+  if (providerName === 'microsoft') {
     provider = factory({
       clientId: process.env.MICROSOFT_CLIENT_ID,
       clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
@@ -100,12 +91,6 @@ function getProviderForUser(req) {
 
 // Initialize provider with user's credentials
 async function initializeProvider(provider, providerName, userId) {
-  if (providerName === 'apple') {
-    // Apple Reminders doesn't need initialization
-    // Each user accesses their own local Reminders
-    return;
-  }
-  
   // Get user's stored credentials for this provider
   const credentials = await userService.getCredentials(userId, providerName);
   
@@ -136,7 +121,6 @@ app.get('/terms',   (req, res) => res.sendFile(path.join(__dirname, 'public', 't
 // Get available providers
 app.get('/api/providers', (req, res) => {
   const providers = ['microsoft', 'google'];
-  if (APPLE_ENABLED) providers.unshift('apple');
   res.json({ providers, default: process.env.DEFAULT_PROVIDER || 'microsoft' });
 });
 
@@ -206,7 +190,7 @@ app.post('/auth/refresh', authService.requireAuth(), (req, res) => {
 // Get connected provider status for the current user
 // Validates each token with a live API call, cached for 5 minutes per user+provider.
 app.get('/auth/providers/status', authService.requireAuth(), async (req, res) => {
-  const status = { apple: APPLE_ENABLED };
+  const status = {};
   await Promise.all(['microsoft', 'google'].map(async (p) => {
     const cacheKey = `status:${req.user.userId}:${p}`;
     const cached = cache.get(cacheKey);
@@ -404,7 +388,7 @@ app.patch('/auth/default-provider', authService.requireAuth(), async (req, res) 
   try {
     const { provider } = req.body;
     
-    const validProviders = APPLE_ENABLED ? ['apple', 'microsoft', 'google'] : ['microsoft', 'google'];
+    const validProviders = ['microsoft', 'google'];
     if (!validProviders.includes(provider)) {
       return res.status(400).json({ error: 'Invalid provider' });
     }
@@ -587,7 +571,6 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`🚀 Multi-User Task Server running on http://localhost:${PORT}`);
   console.log(`Default provider: ${process.env.DEFAULT_PROVIDER || 'microsoft'}`);
-  console.log(`Apple provider:   ${APPLE_ENABLED ? 'enabled' : 'disabled (set ENABLE_APPLE_PROVIDER=true to enable)'}`);
   console.log('\n📝 Authentication endpoints:');
   console.log('  POST /auth/register');
   console.log('  POST /auth/login');
@@ -601,7 +584,7 @@ app.listen(PORT, () => {
   console.log('  DELETE /auth/provider/:provider');
   console.log('  PATCH  /auth/default-provider');
   console.log('\n📋 Task endpoints (require authentication):');
-  console.log('  GET    /api/lists?provider=apple|microsoft|google');
+  console.log('  GET    /api/lists?provider=microsoft|google');
   console.log('  GET    /api/lists/:listId/tasks');
   console.log('  GET    /api/lists/:listId/tasks/:taskId');
   console.log('  POST   /api/lists/:listId/tasks');

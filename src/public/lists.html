@@ -52,7 +52,6 @@
     if (!token) { window.location.href = '/'; }
 
     const PROVIDERS = {
-      apple:     { label: 'Apple',     icon: '🍎', color: '#2e7d32', bg: '#e8f5e9' },
       microsoft: { label: 'Microsoft', icon: '🟦', color: '#1565c0', bg: '#e3f2fd' },
       google:    { label: 'Google',    icon: '🟥', color: '#b71c1c', bg: '#ffebee' }
     };
@@ -165,7 +164,7 @@
       }
 
       // Load provider status
-      let status = { apple: false, microsoft: false, google: false };
+      let status = { microsoft: false, google: false };
       try {
         const res = await fetch('/auth/providers/status', { headers: authHeaders() });
         status = await res.json();
