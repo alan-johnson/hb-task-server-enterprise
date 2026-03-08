@@ -53,12 +53,9 @@ async function main() {
 
   // --- Clear Redis cache entries ---
   if (process.env.REDIS_URL) {
-    const redis = new Redis(process.env.REDIS_URL, { enableOfflineQueue: false });
     const cacheKeys = [];
-
     for (const id of userIds) {
       cacheKeys.push(`user:id:${id}`);
-      // provider credential cache
       for (const p of ['microsoft', 'google', 'apple']) {
         cacheKeys.push(`creds:${id}:${p}`);
         cacheKeys.push(`status:${id}:${p}`);
@@ -73,9 +70,19 @@ async function main() {
       cacheKeys.push(`user:name:${name}`);
     }
 
-    await redis.del(...cacheKeys);
-    console.log(`Cleared ${cacheKeys.length} Redis cache key(s).`);
-    redis.disconnect();
+    try {
+      const redis = new Redis(process.env.REDIS_URL);
+      // Wait for connection before issuing commands
+      await new Promise((resolve, reject) => {
+        redis.once('ready', resolve);
+        redis.once('error', reject);
+      });
+      await redis.del(...cacheKeys);
+      console.log(`Cleared ${cacheKeys.length} Redis cache key(s).`);
+      redis.disconnect();
+    } catch (redisErr) {
+      console.warn(`Redis flush skipped (${redisErr.message}) — cache will expire naturally.`);
+    }
   } else {
     console.log('REDIS_URL not set — skipping cache flush.');
   }
