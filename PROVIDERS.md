@@ -1,6 +1,6 @@
 # Task Provider Integration Guide
 
-This document describes how hb Task Server integrates with each supported task provider, and how Apple Reminders could be added via CalDAV if needed in the future.
+This document describes how UpQ task server integrates with each supported task provider, and how Apple Reminders could be added via CalDAV if needed in the future.
 
 ---
 
