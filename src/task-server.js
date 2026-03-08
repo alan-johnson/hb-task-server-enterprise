@@ -15,7 +15,7 @@ const stripe = process.env.STRIPE_SECRET_KEY
   ? require('stripe')(process.env.STRIPE_SECRET_KEY)
   : null;
 
-const { sendVerificationEmail, resendVerificationEmail } = require('./emailService');
+const { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail } = require('./emailService');
 
 // Load classification config from TOML (once at startup)
 const DEFAULT_CLASSIFICATION = {
@@ -311,6 +311,43 @@ app.post('/auth/resend-verification', async (req, res) => {
   } catch (err) {
     console.error('Resend verification error:', err.message);
     res.status(500).json({ error: 'Could not send verification email. Please try again later.' });
+  }
+});
+
+// POST /auth/forgot-password — request a password-reset email (no auth required)
+app.post('/auth/forgot-password', async (req, res) => {
+  // Always respond with the same message to avoid leaking whether an email is registered
+  const generic = { message: 'If that email is registered, a reset link has been sent.' };
+  try {
+    const { email } = req.body;
+    if (!email) return res.json(generic);
+
+    const result = await userService.createPasswordResetToken(email);
+    if (result) {
+      const resetUrl = `${WEB_URL}/reset-password.html?token=${result.token}`;
+      await sendPasswordResetEmail({ to: result.email, username: result.username, resetUrl });
+    }
+    res.json(generic);
+  } catch (err) {
+    console.error('Forgot password error:', err.message);
+    res.json(generic); // still generic — never reveal the error to the client
+  }
+});
+
+// POST /auth/reset-password — set a new password using a valid reset token (no auth required)
+app.post('/auth/reset-password', async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) {
+      return res.status(400).json({ error: 'Token and new password are required.' });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+    }
+    await userService.resetPassword(token, newPassword);
+    res.json({ message: 'Password updated. You can now sign in.' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

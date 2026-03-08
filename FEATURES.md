@@ -116,6 +116,23 @@ New accounts are not active until the user verifies their email address.
 - 24-hour token expiry limits the window for stale or stolen links
 - URL fragment delivery means the JWT is never written to server access logs or sent as a query parameter to third-party services
 
+### Password Reset
+
+Users who have forgotten their password can request a reset link by email.
+
+| Step | Detail |
+|---|---|
+| Request | `POST /auth/forgot-password` accepts `{ email }`; always returns the same generic message (no email-existence leak) |
+| Reset token | Server generates a 64-character random hex token, stores it with a **1-hour expiry** |
+| Email | Link sent to `reset-password.html?token=…`; if SMTP not configured, URL is logged to console |
+| Reset form | User enters and confirms new password; submitted to `POST /auth/reset-password` |
+| Password update | Token validated, password hashed with bcrypt, token columns cleared |
+
+**Benefits:**
+- Generic response to `/auth/forgot-password` prevents account enumeration (attackers cannot tell whether an email is registered)
+- 1-hour token expiry tightly limits the window for stolen reset links
+- Token is single-use and cleared immediately on successful reset
+
 ### JWT Authentication
 
 Tokens are signed with HS256 and expire after **30 days**.
@@ -126,6 +143,8 @@ Tokens are signed with HS256 and expire after **30 days**.
 | `POST /auth/login` | No | Authenticate; returns a 30-day JWT (requires verified email) |
 | `GET /auth/verify-email` | No | Verify token from email link; issues JWT and redirects to pricing |
 | `POST /auth/resend-verification` | No | Resend the verification email by username |
+| `POST /auth/forgot-password` | No | Request a password-reset email by email address |
+| `POST /auth/reset-password` | No | Set a new password using a valid reset token |
 | `POST /auth/refresh` | Yes | Issue a new 30-day token from a valid existing token |
 | `GET /auth/me` | Yes | Return the current user's profile |
 
@@ -393,6 +412,8 @@ A browser-based interface served as static files from `src/public/` directly by 
 | `POST` | `/auth/login` | No | Authenticate; returns 30-day JWT. Returns `403 { code: "EMAIL_NOT_VERIFIED" }` if unverified |
 | `GET` | `/auth/verify-email?token=…` | No | Verify email token; issues JWT and redirects to `/pricing.html#token=<jwt>` |
 | `POST` | `/auth/resend-verification` | No | Resend verification email by `{ username }` |
+| `POST` | `/auth/forgot-password` | No | Request a password-reset email by `{ email }`; always returns generic message |
+| `POST` | `/auth/reset-password` | No | Set a new password with `{ token, newPassword }` |
 | `POST` | `/auth/refresh` | Yes | Issue a new 30-day token from a valid existing token |
 | `GET` | `/auth/me` | Yes | Return the current user's profile |
 | `GET` | `/auth/providers/status` | Yes | Live connection check for all providers |
@@ -588,5 +609,6 @@ The web server supports HTTPS when `SSL_KEY_PATH` and `SSL_CERT_PATH` are set. A
 | Start all | `npm run start:all` | Start API + web server (PostgreSQL and Redis must be running) |
 | Start API | `npm run start:api` | Start task API server only |
 | Start web | `npm run start:web` | Start web server only |
+| Create admin | `npm run create-admin` | Create or reset the built-in admin account (pre-verified, always active, no Stripe required) |
 | Delete test user | `npm run delete-test-user` | Delete all accounts with `johnsonalan006@gmail.com` from PostgreSQL and Redis |
 | Get verify URL | `npm run get-verify-url [username\|email]` | Print the pending verification URL from the database (for local testing without SMTP) |
