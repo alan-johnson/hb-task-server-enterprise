@@ -8,13 +8,13 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="manifest" href="/site.webmanifest">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Task Server — Tasks</title>
+  <title>UpQ task server — Tasks</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="dashboard">
   <header class="site-header">
     <a href="/lists.html"><img src="/images/handsbreadth-logo-web.png" alt="handsbreadth"></a>
-    <span class="site-header-title">hb Task Server</span>
+    <span class="site-header-title">UpQ task server</span>
   </header>
   <div class="dashboard-container">
 
@@ -117,7 +117,7 @@
     };
 
     document.getElementById('page-title').textContent = listName;
-    document.title = `${listName} — Task Server`;
+    document.title = `${listName} — UpQ task server`;
     const p = PROVIDERS[provider] || { label: provider, icon: '📋' };
 
     // Module state

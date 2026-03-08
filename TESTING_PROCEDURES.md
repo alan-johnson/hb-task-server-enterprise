@@ -1,4 +1,4 @@
-# Testing Procedures for hb Task Server
+# Testing Procedures for UpQ task server
 
 ## Registration
 1. Register with the following:

@@ -1,4 +1,4 @@
-# Feature Reference — Handsbreadth Task Server
+# Feature Reference — UpQ task server
 
 A detailed breakdown of every feature in the server, with the benefit of each.
 

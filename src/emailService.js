@@ -54,7 +54,7 @@ async function sendVerificationEmail({ to, username, verifyUrl, createdAt }) {
             Hi <strong>${escHtml(username)}</strong>,
           </p>
           <p style="color:#444;font-size:.95rem;line-height:1.6;margin:0 0 1.5rem">
-            Thank you for registering with <strong>hb Task Server</strong> by handsbreadth LLC.
+            Thank you for registering with <strong>UpQ task server</strong> by handsbreadth LLC.
             Please click the button below to verify your email address and complete your registration.
           </p>
 
@@ -103,9 +103,9 @@ async function sendVerificationEmail({ to, username, verifyUrl, createdAt }) {
 </html>`;
 
   const text =
-    `Verify your email address — hb Task Server\n\n` +
+    `Verify your email address — UpQ task server\n\n` +
     `Hi ${username},\n\n` +
-    `Thank you for registering with hb Task Server by handsbreadth LLC.\n\n` +
+    `Thank you for registering with UpQ task server by handsbreadth LLC.\n\n` +
     `Registration details:\n` +
     `  Username:   ${username}\n` +
     `  Email:      ${to}\n` +
@@ -119,7 +119,7 @@ async function sendVerificationEmail({ to, username, verifyUrl, createdAt }) {
   await transporter.sendMail({
     from,
     to,
-    subject: 'Verify your hb Task Server email address',
+    subject: 'Verify your UpQ task server email address',
     html,
     text,
   });
@@ -168,7 +168,7 @@ async function sendPasswordResetEmail({ to, username, resetUrl }) {
             Hi <strong>${escHtml(username)}</strong>,
           </p>
           <p style="color:#444;font-size:.95rem;line-height:1.6;margin:0 0 1.75rem">
-            We received a request to reset the password for your <strong>hb Task Server</strong> account.
+            We received a request to reset the password for your <strong>UpQ task server</strong> account.
             Click the button below to choose a new password.
           </p>
 
@@ -200,9 +200,9 @@ async function sendPasswordResetEmail({ to, username, resetUrl }) {
 </html>`;
 
   const text =
-    `Reset your password — hb Task Server\n\n` +
+    `Reset your password — UpQ task server\n\n` +
     `Hi ${username},\n\n` +
-    `We received a request to reset the password for your hb Task Server account.\n\n` +
+    `We received a request to reset the password for your UpQ task server account.\n\n` +
     `Click the link below to choose a new password (expires in 1 hour):\n` +
     `${resetUrl}\n\n` +
     `If you didn't request a password reset, you can safely ignore this email.\n\n` +
@@ -212,7 +212,7 @@ async function sendPasswordResetEmail({ to, username, resetUrl }) {
   await transporter.sendMail({
     from,
     to,
-    subject: 'Reset your hb Task Server password',
+    subject: 'Reset your UpQ task server password',
     html,
     text,
   });
