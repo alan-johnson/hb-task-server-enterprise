@@ -14,10 +14,11 @@ A detailed breakdown of every feature in the server, with the benefit of each.
 2. [Authentication & Security](#2-authentication--security)
 3. [Multi-User Architecture](#3-multi-user-architecture)
 4. [Caching](#4-caching)
-5. [Web UI](#5-web-ui)
-6. [REST API](#6-rest-api)
-7. [User Preferences](#7-user-preferences)
-8. [Deployment & Configuration](#8-deployment--configuration)
+5. [Billing & Subscriptions](#5-billing--subscriptions)
+6. [Web UI](#6-web-ui)
+7. [REST API](#7-rest-api)
+8. [User Preferences & Classification](#8-user-preferences--classification)
+9. [Deployment & Configuration](#9-deployment--configuration)
 
 ---
 
@@ -122,16 +123,38 @@ deleteTask(listId, taskId)
 
 ## 2. Authentication & Security
 
+### Registration with Email Verification
+
+New accounts are not active until the user verifies their email address.
+
+| Step | Detail |
+|---|---|
+| Registration | `POST /auth/register` creates the account with `email_verified = false`; no JWT is issued yet |
+| Verification email | Server generates a 64-character random hex token, stores it with a 24-hour expiry, and emails a verification link |
+| Email fallback | If `SMTP_HOST` is not configured, the verify URL is logged to the server console (useful for local development) |
+| Verify link | `GET /auth/verify-email?token=…` validates the token, sets `email_verified = true`, issues a JWT, and redirects to `/pricing.html#token=<jwt>` |
+| JWT delivery | JWT is passed in the URL fragment (`#token=…`) so it is never transmitted to any server in request headers or logs |
+| Resend | `POST /auth/resend-verification` generates a fresh token and resends the email; no authentication required since the user cannot log in yet |
+| Login gate | `POST /auth/login` returns `403 { code: "EMAIL_NOT_VERIFIED" }` if the account exists but is not verified |
+
+**Benefits:**
+- Confirms the user owns the email address before granting access — critical for subscription billing
+- Unverified accounts cannot log in, preventing ghost accounts from accumulating
+- 24-hour token expiry limits the window for stale or stolen links
+- URL fragment delivery means the JWT is never written to server access logs or sent as a query parameter to third-party services
+
 ### JWT Authentication
 
 Tokens are signed with HS256 and expire after **30 days**.
 
-| Endpoint | Description |
-|---|---|
-| `POST /auth/register` | Create account; returns a 30-day token immediately |
-| `POST /auth/login` | Authenticate with username and password; returns a token |
-| `POST /auth/refresh` | Exchange a valid token for a new 30-day token — no password required |
-| `GET /auth/me` | Return the current user's profile using the token |
+| Endpoint | Auth | Description |
+|---|---|---|
+| `POST /auth/register` | No | Create account; sends verification email — no token returned until verified |
+| `POST /auth/login` | No | Authenticate; returns a 30-day JWT (requires verified email) |
+| `GET /auth/verify-email` | No | Verify token from email link; issues JWT and redirects to pricing |
+| `POST /auth/resend-verification` | No | Resend the verification email by username |
+| `POST /auth/refresh` | Yes | Issue a new 30-day token from a valid existing token |
+| `GET /auth/me` | Yes | Return the current user's profile |
 
 **Benefits:**
 - Stateless — no server-side session store required; any instance can validate any token
@@ -194,8 +217,26 @@ All persistent state is stored in PostgreSQL. The schema is applied automaticall
 
 | Table | Purpose |
 |---|---|
-| `users` | One row per registered user — credentials, preferences, default provider |
+| `users` | One row per registered user — credentials, preferences, default provider, Stripe info, email verification state |
 | `user_credentials` | One row per user per connected OAuth provider — encrypted tokens |
+
+**`users` columns:**
+
+| Column | Type | Description |
+|---|---|---|
+| `user_id` | TEXT PK | Unique user identifier (timestamp + random suffix) |
+| `username` | TEXT UNIQUE | Login name |
+| `email` | TEXT | Email address (required; used for Stripe and verification) |
+| `password_hash` | TEXT | bcrypt hash |
+| `created_at` | TIMESTAMPTZ | Account creation timestamp |
+| `default_provider` | TEXT | Active provider fallback |
+| `show_completed` | BOOLEAN | Whether completed tasks appear in counts |
+| `classification_rules` | JSONB | Per-user task classification overrides (null = use server defaults) |
+| `stripe_customer_id` | TEXT | Stripe customer ID (set after first checkout) |
+| `subscription_status` | TEXT | `none`, `active`, `trialing`, `canceled` |
+| `email_verified` | BOOLEAN | Whether the email address has been confirmed |
+| `verification_token` | TEXT | Pending verification token (cleared after use) |
+| `verification_token_expires` | TIMESTAMPTZ | Token expiry (24 hours from generation) |
 
 **Benefits:**
 - Schema migrations run automatically on boot — no separate migration tool or manual step needed when columns are added
@@ -226,7 +267,7 @@ Activated by setting `REDIS_URL`. Caches user objects and OAuth credentials by k
 
 | Key | Value | Invalidated on |
 |---|---|---|
-| `user:id:{userId}` | JSON user object | `updateDefaultProvider`, `updatePreferences` |
+| `user:id:{userId}` | JSON user object | `updateDefaultProvider`, `updatePreferences`, email verification, subscription update |
 | `user:name:{username}` | JSON user object | Same as above |
 | `creds:{userId}:{provider}` | JSON credentials (decrypted) | `storeCredentials`, `removeCredentials` |
 
@@ -264,20 +305,77 @@ Request arrives
 
 ---
 
-## 5. Web UI
+## 5. Billing & Subscriptions
+
+Subscription management is handled by **Stripe Checkout**. No payment card data ever touches the server.
+
+### Plans
+
+| Plan | Price | Detail |
+|---|---|---|
+| Monthly | $8 / month | Cancel anytime — uses `STRIPE_PRICE_ID_MONTHLY` |
+| Annual | $85 / year | ~$7.08/month; saves $11/year — uses `STRIPE_PRICE_ID_ANNUAL` |
+| Free Trial | $0 for N days | Configurable via `STRIPE_TRIAL_DAYS` (default 14); monthly price applies after trial |
+
+### Checkout Flow
+
+1. User selects a plan on `/pricing.html` and clicks Subscribe
+2. Server creates a Stripe Checkout session with the selected price (and `trial_period_days` for the trial plan)
+3. User is redirected to Stripe's hosted checkout page to enter payment details
+4. On success, Stripe redirects back to `/success.html?session_id=…`
+5. The success page calls `/billing/session-info` to display the confirmed plan and renewal/trial-end date
+6. User clicks **Continue** — the page checks provider status and routes to Settings (if no providers connected) or Lists
+
+### Webhook
+
+Stripe sends signed events to `POST /billing/webhook`. The server verifies the signature using `STRIPE_WEBHOOK_SECRET` before processing.
+
+| Event | Action |
+|---|---|
+| `checkout.session.completed` | Sets `subscription_status = 'active'` and stores `stripe_customer_id` |
+| `customer.subscription.deleted` | Sets `subscription_status = 'canceled'` |
+
+**Benefits:**
+- Stripe handles all PCI-DSS compliance for card data — the server never sees raw card numbers
+- Webhook signature verification prevents spoofed events from activating accounts
+- The `already subscribed` check on `/pricing.html` skips the page entirely for users who are already active
+- Session info is fetched directly from Stripe on the success page — no dependency on the webhook having fired yet
+
+---
+
+## 6. Web UI
 
 A browser-based interface served as static files from `src/public/` directly by the Express server. No separate web server or build step required.
 
-### Login / Registration (`/`)
+### Sign In / Register (`/`)
 
 - Login and registration on a single page with a toggle link between forms
+- Registration collects username, password, and email (all required)
+- After registration: hides the form and shows a "Check your email" confirmation panel with the registered address; includes a "Resend the email" link
+- After login with unverified account: shows a yellow notice with a "Resend verification email" link instead of a generic error
 - Auto-redirects to the lists view if a valid token is already in `localStorage`
 - Proper `autocomplete` attributes on all form inputs for browser password manager compatibility
 
+### Pricing / Subscribe (`/pricing.html`)
+
+- Displays three subscription plans (Monthly, Annual, Free Trial) as selectable cards
+- Annual plan is selected by default and marked "Best Value"
+- Subscribe button label changes to "Start Free Trial" when the trial plan is selected; a credit-card-required notice appears
+- Skips directly to `/lists.html` if the user already has an active subscription
+- Receives the JWT from the email verification redirect via URL fragment (`#token=…`); stores it in `localStorage` and clears the fragment before proceeding
+
+### Subscription Confirmed (`/success.html`)
+
+- Displayed after Stripe Checkout completes
+- Fetches session details from `/billing/session-info` and shows the confirmed plan name, renewal date (or trial-end date), and a truncated reference ID
+- **Continue** button: calls `/auth/providers/status` and routes to `/settings.html` if no providers are connected, or `/lists.html` if at least one is
+
 ### Lists View (`/lists.html`)
 
-- Displays all task lists for the active provider
-- Shows task count per list
+- Displays all task lists for all connected providers
+- Provider filter tabs (All / Microsoft / Google / Apple) persist selection in `localStorage`
+- Shows task count per list (loaded asynchronously after the list renders)
+- Redirects to `/settings.html?reconnect=true` if no providers are connected
 
 ### Tasks View (`/tasks.html`)
 
@@ -292,9 +390,12 @@ A browser-based interface served as static files from `src/public/` directly by 
 ### Settings (`/settings.html`)
 
 - Connect and disconnect Microsoft Tasks and Google Tasks via OAuth
-- Displays live connection status for each provider
+- Displays live connection status for each provider (Connected ✓ / Connect button)
+- Set default provider per connected service
 - Toggle the `showCompleted` preference
+- Edit, export, and import per-user task classification rules (TOML format)
 - Redirected to automatically after a successful OAuth callback (`?connected=microsoft` or `?connected=google`)
+- Shows a reconnect banner when arriving from `/lists.html` with `?reconnect=true`
 
 ### Legal Pages
 
@@ -308,25 +409,45 @@ A browser-based interface served as static files from `src/public/` directly by 
 
 ---
 
-## 6. REST API
+## 7. REST API
 
 ### Authentication Endpoints
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `POST` | `/auth/register` | No | Register a new user; returns a 30-day JWT |
-| `POST` | `/auth/login` | No | Log in; returns a 30-day JWT |
+| `POST` | `/auth/register` | No | Create account (username, password, email required); sends verification email |
+| `POST` | `/auth/login` | No | Authenticate; returns 30-day JWT. Returns `403 { code: "EMAIL_NOT_VERIFIED" }` if unverified |
+| `GET` | `/auth/verify-email?token=…` | No | Verify email token; issues JWT and redirects to `/pricing.html#token=<jwt>` |
+| `POST` | `/auth/resend-verification` | No | Resend verification email by `{ username }` |
 | `POST` | `/auth/refresh` | Yes | Issue a new 30-day token from a valid existing token |
 | `GET` | `/auth/me` | Yes | Return the current user's profile |
 | `GET` | `/auth/providers/status` | Yes | Live connection check for all providers |
 | `GET` | `/auth/microsoft/url` | Yes | Generate a Microsoft OAuth authorization URL |
-| `GET` | `/auth/microsoft/callback` | — | Microsoft OAuth callback; stores tokens and redirects |
+| `GET` | `/auth/microsoft/callback` | — | Microsoft OAuth callback; stores tokens and redirects to `/settings.html?connected=microsoft` |
 | `POST` | `/auth/microsoft/token` | Yes | Store a Microsoft access token manually (fallback) |
 | `GET` | `/auth/google/url` | Yes | Generate a Google OAuth authorization URL |
-| `GET` | `/auth/google/callback` | — | Google OAuth callback; stores tokens and redirects |
+| `GET` | `/auth/google/callback` | — | Google OAuth callback; stores tokens and redirects to `/settings.html?connected=google` |
 | `DELETE` | `/auth/provider/:provider` | Yes | Disconnect a provider and remove its stored credentials |
 | `PATCH` | `/auth/default-provider` | Yes | Update the user's default provider |
 | `PATCH` | `/auth/preferences` | Yes | Update user preferences (`showCompleted`) |
+
+### Classification Rule Endpoints
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/auth/me/classification` | Yes | Return effective rules (user's custom or server defaults) and whether they are custom |
+| `PUT` | `/auth/me/classification` | Yes | Save custom classification rules for this user |
+| `DELETE` | `/auth/me/classification` | Yes | Reset to server defaults |
+| `POST` | `/auth/me/classification/parse` | Yes | Parse a TOML classification file and return validated rules without saving |
+
+### Billing Endpoints
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/billing/status` | Yes | Return the user's `subscriptionStatus` (`none`, `active`, `trialing`, `canceled`) |
+| `POST` | `/billing/create-checkout-session` | Yes | Create a Stripe Checkout session for the selected `plan` (`monthly`, `annual`, `trial`); returns `{ url }` |
+| `GET` | `/billing/session-info?session_id=…` | Yes | Fetch plan type, status, trial end, and billing period end for a completed checkout session |
+| `POST` | `/billing/webhook` | — (Stripe signature) | Receive Stripe events; requires raw body and `STRIPE_WEBHOOK_SECRET` |
 
 ### Task Endpoints
 
@@ -334,6 +455,7 @@ All task endpoints require a `Bearer` token. The provider is selected by `?provi
 
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/api/tasks/unified` | All tasks from all connected providers across all lists |
 | `GET` | `/api/lists` | All task lists for the active provider |
 | `GET` | `/api/lists/counts` | Task counts for all lists in a single call |
 | `GET` | `/api/lists/:listId/tasks` | All tasks in a list |
@@ -349,6 +471,7 @@ All task endpoints require a `Bearer` token. The provider is selected by `?provi
 |---|---|---|
 | `GET` | `/health` | Health check — returns `{ status: "ok", timestamp }` |
 | `GET` | `/api/providers` | List enabled providers and the default |
+| `GET` | `/api/config/classification` | Return the server-wide default classification config |
 | `GET` | `/privacy` | Privacy policy page |
 | `GET` | `/terms` | Terms of service page |
 
@@ -381,7 +504,7 @@ Pass `"dueDate": null` to explicitly clear a due date. Invalidates the task list
 
 ---
 
-## 7. User Preferences
+## 8. User Preferences & Classification
 
 ### Default Provider
 
@@ -400,25 +523,69 @@ The `showCompleted` boolean preference controls whether completed tasks are incl
 - Users who want a full picture can opt in
 - Preference is stored per user in PostgreSQL and respected server-side — clients need no filtering logic
 
----
+### Task Classification Rules
 
-## 8. Deployment & Configuration
+Tasks are classified into three buckets — **Now**, **Not Now**, and **Later** — based on configurable rules.
 
-### Flexible Port
+| Bucket | Default criteria |
+|---|---|
+| Now | Overdue tasks; high-priority tasks |
+| Not Now | Tasks with future due dates; normal-priority tasks |
+| Later | Everything else (catch-all) |
 
-Default port is `3500`. Override with the `PORT` environment variable.
+Rules are defined server-wide in `config/classification.toml` and can be overridden per user.
 
-### Apple Provider Feature Flag
-
-`ENABLE_APPLE_PROVIDER=false` by default. Apple Reminders requires macOS and is deliberately disabled so it cannot accidentally activate on a Linux server.
+| Operation | Endpoint |
+|---|---|
+| View effective rules | `GET /auth/me/classification` — returns custom rules if set, otherwise server defaults; includes `isCustom` flag |
+| Save custom rules | `PUT /auth/me/classification` — body: `{ now, not_now, later }` |
+| Reset to defaults | `DELETE /auth/me/classification` |
+| Validate a TOML file | `POST /auth/me/classification/parse` — parses and validates without saving |
+| Export rules | Settings UI → Export (downloads a `.toml` file) |
+| Import rules | Settings UI → Import (upload a `.toml` file; shows a preview before applying) |
 
 **Benefits:**
-- Safe default for cloud deployments — AppleScript would fail silently or with cryptic errors on Linux; the flag makes the problem explicit and configurable
-- Local macOS developers can enable it with a single env var change
+- Server-wide defaults apply to all users without any configuration, so the feature works out of the box
+- Per-user overrides are stored as JSONB in PostgreSQL — no extra table required
+- TOML import/export lets power users manage rules in a text editor and share them across accounts
+- The parse-only endpoint validates structure before saving, preventing bad rules from being stored
 
-### Default Provider Flag
+---
 
-`DEFAULT_PROVIDER` sets the provider returned by `/api/providers` and used as the fallback for new users. Defaults to `microsoft`.
+## 9. Deployment & Configuration
+
+### Environment Variables
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `PORT` / `API_PORT` | No | `3500` | Task API server port |
+| `WEB_PORT` | No | `80` | Web server HTTP port |
+| `HTTPS_PORT` | No | `443` | Web server HTTPS port (requires SSL_KEY_PATH + SSL_CERT_PATH) |
+| `WEB_URL` | Yes (prod) | `http://localhost` | Public base URL — used in OAuth redirects, verification emails, Stripe success URL |
+| `JWT_SECRET` | Yes | — | HS256 signing key for JWTs |
+| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
+| `REDIS_URL` | No | — | Redis connection string; enables shared cache |
+| `ENCRYPTION_KEY` | Yes | — | 64-char hex key for AES-256-GCM token encryption |
+| `STRIPE_SECRET_KEY` | No | — | Stripe API key; billing disabled if absent |
+| `STRIPE_WEBHOOK_SECRET` | No | — | Stripe webhook signing secret |
+| `STRIPE_PRICE_ID_MONTHLY` | No | falls back to `STRIPE_PRICE_ID` | Monthly plan price ID |
+| `STRIPE_PRICE_ID_ANNUAL` | No | — | Annual plan price ID |
+| `STRIPE_TRIAL_DAYS` | No | `14` | Free trial length in days |
+| `SMTP_HOST` | No | — | SMTP server; if absent, verify URLs are logged to console |
+| `SMTP_PORT` | No | `587` | SMTP port |
+| `SMTP_SECURE` | No | `false` | `true` for port 465 implicit TLS |
+| `SMTP_USER` | No | — | SMTP login username |
+| `SMTP_PASSWORD` | No | — | SMTP login password |
+| `SMTP_FROM` | No | `handsbreadth LLC <noreply@handsbreadth.com>` | From address on outgoing emails |
+| `MICROSOFT_CLIENT_ID` | No | — | Azure app registration client ID |
+| `MICROSOFT_CLIENT_SECRET` | No | — | Azure app registration client secret |
+| `MICROSOFT_TENANT_ID` | No | `common` | `common` for any account; specific tenant ID to restrict |
+| `MICROSOFT_REDIRECT_URI` | No | — | Must match Azure app registration |
+| `GOOGLE_CLIENT_ID` | No | — | Google Cloud OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | No | — | Google Cloud OAuth client secret |
+| `GOOGLE_REDIRECT_URI` | No | — | Must match Google Cloud Console |
+| `ENABLE_APPLE_PROVIDER` | No | `false` | `true` only on local macOS |
+| `DEFAULT_PROVIDER` | No | `microsoft` | Default provider for new users |
 
 ### Auto Schema Migration
 
@@ -429,18 +596,28 @@ On startup, the server runs the full `schema.sql` using `CREATE TABLE IF NOT EXI
 - Safe to run on an existing database — existing tables and data are not affected
 - Deploying a new version is a simple `git pull && npm start`
 
-### Single Binary Entry Point
+### HTTPS Support
 
-`npm start` runs `node src/server.js`. No build step, no transpilation, no compilation.
+The web server supports HTTPS when `SSL_KEY_PATH` and `SSL_CERT_PATH` are set. An automatic HTTP → HTTPS redirect runs on `WEB_PORT`.
 
-**Benefits:**
-- Deployment is as simple as `npm install --omit=dev && npm start`
-- Works with any Node.js 18+ runtime without additional tooling
+### CORS
 
-### CORS Enabled
-
-`cors()` middleware is applied globally.
+`cors()` middleware is applied globally. The allowed origin can be restricted with `ALLOWED_ORIGIN`.
 
 **Benefits:**
-- Web UIs served from a different origin (e.g., a CDN or different subdomain) can call the API without browser CORS errors
+- Web UIs served from a different origin can call the API without browser CORS errors
 - Supports integration with mobile webviews and third-party clients
+
+### Apple Provider Feature Flag
+
+`ENABLE_APPLE_PROVIDER=false` by default. Apple Reminders requires macOS and is deliberately disabled so it cannot accidentally activate on a Linux server.
+
+### Development Scripts
+
+| Script | Command | Purpose |
+|---|---|---|
+| Start all | `npm run start:all` | Start API + web server (PostgreSQL and Redis must be running) |
+| Start API | `npm run start:api` | Start task API server only |
+| Start web | `npm run start:web` | Start web server only |
+| Delete test user | `npm run delete-test-user` | Delete all accounts with `johnsonalan006@gmail.com` from PostgreSQL and Redis |
+| Get verify URL | `npm run get-verify-url [username\|email]` | Print the pending verification URL from the database (for local testing without SMTP) |
