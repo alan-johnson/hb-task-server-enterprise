@@ -35,8 +35,6 @@
 
     <div class="provider-grid" id="provider-grid">
 
-      <!-- Apple Reminders — injected by JS if enabled -->
-
       <!-- Microsoft Tasks -->
       <div class="provider-card" id="card-microsoft">
         <div class="provider-icon">🟦</div>
@@ -276,23 +274,6 @@
       try {
         const res = await fetch('/auth/providers/status', { headers: authHeaders() });
         const status = await res.json();
-        if (status.apple) {
-          const grid = document.getElementById('provider-grid');
-          const appleCard = document.createElement('div');
-          appleCard.className = 'provider-card';
-          appleCard.innerHTML = `
-            <div class="provider-icon">🍎</div>
-            <div class="provider-info">
-              <div class="provider-name">Apple Reminders</div>
-              <div class="provider-desc">Native macOS integration — no setup required</div>
-            </div>
-            <div class="provider-actions">
-              <span class="badge badge-builtin">Built-in</span>
-              <button class="btn btn-secondary btn-sm" onclick="setDefault('apple')">Set as Default</button>
-            </div>
-          `;
-          grid.insertBefore(appleCard, grid.firstChild);
-        }
         renderProviderStatus('microsoft', status.microsoft);
         renderProviderStatus('google', status.google);
       } catch {

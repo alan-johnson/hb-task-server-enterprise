@@ -49,7 +49,7 @@ class UserService {
       email:           email || null,
       passwordHash:    hashedPassword,
       createdAt,
-      defaultProvider: 'apple',
+      defaultProvider: 'microsoft',
     };
     await cache.set(`user:id:${userId}`,       JSON.stringify(user));
     await cache.set(`user:name:${username}`,   JSON.stringify(user));
