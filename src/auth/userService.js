@@ -1,4 +1,5 @@
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const fs = require('fs').promises;
 const path = require('path');
 const { pool, encrypt, decrypt } = require('../db/db');
@@ -65,6 +66,12 @@ class UserService {
     const isValid = await bcrypt.compare(password, user.passwordHash);
     if (!isValid) throw new Error('Invalid username or password');
 
+    if (!user.emailVerified) {
+      const err = new Error('Please verify your email address before signing in.');
+      err.code = 'EMAIL_NOT_VERIFIED';
+      throw err;
+    }
+
     return { userId: user.userId, username: user.username, email: user.email };
   }
 
@@ -78,7 +85,7 @@ class UserService {
     }
 
     const result = await pool.query(
-      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed, stripe_customer_id, subscription_status FROM users WHERE user_id = $1',
+      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed, stripe_customer_id, subscription_status, email_verified FROM users WHERE user_id = $1',
       [userId]
     );
     if (!result.rows[0]) return null;
@@ -163,6 +170,50 @@ class UserService {
     return false;
   }
 
+  // ---------- email verification ----------
+
+  async createVerificationToken(userId) {
+    const token   = crypto.randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    await pool.query(
+      'UPDATE users SET verification_token = $2, verification_token_expires = $3 WHERE user_id = $1',
+      [userId, token, expires.toISOString()]
+    );
+    // Invalidate cached user so the token is visible on next load
+    const result = await pool.query('SELECT username FROM users WHERE user_id = $1', [userId]);
+    if (result.rows[0]) {
+      await cache.del(`user:id:${userId}`, `user:name:${result.rows[0].username}`);
+    }
+    return token;
+  }
+
+  async verifyEmailToken(token) {
+    const result = await pool.query(
+      `SELECT user_id, username, email, verification_token_expires
+       FROM users
+       WHERE verification_token = $1 AND email_verified = FALSE`,
+      [token]
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error('Invalid or already used verification link.');
+    if (new Date(row.verification_token_expires) < new Date()) {
+      throw new Error('Verification link has expired. Please request a new one.');
+    }
+    await pool.query(
+      `UPDATE users
+       SET email_verified = TRUE, verification_token = NULL, verification_token_expires = NULL
+       WHERE user_id = $1`,
+      [row.user_id]
+    );
+    await cache.del(`user:id:${row.user_id}`, `user:name:${row.username}`);
+    return { userId: row.user_id, username: row.username, email: row.email };
+  }
+
+  // Public alias used by the resend route
+  async getUserByUsername(username) {
+    return this._getUserByUsername(username);
+  }
+
   // ---------- private helpers ----------
 
   async _getUserByUsername(username) {
@@ -170,7 +221,7 @@ class UserService {
     if (cached) return JSON.parse(cached);
 
     const result = await pool.query(
-      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed, stripe_customer_id, subscription_status FROM users WHERE username = $1',
+      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed, stripe_customer_id, subscription_status, email_verified FROM users WHERE username = $1',
       [username]
     );
     if (!result.rows[0]) return null;
@@ -247,6 +298,7 @@ class UserService {
       showCompleted:      row.show_completed,
       stripeCustomerId:   row.stripe_customer_id  || null,
       subscriptionStatus: row.subscription_status || 'none',
+      emailVerified:      row.email_verified       ?? false,
     };
   }
 }

@@ -16,6 +16,8 @@ const stripe = process.env.STRIPE_SECRET_KEY
   ? require('stripe')(process.env.STRIPE_SECRET_KEY)
   : null;
 
+const { sendVerificationEmail, resendVerificationEmail } = require('./emailService');
+
 // Load classification config from TOML (once at startup)
 const DEFAULT_CLASSIFICATION = {
   now:     { label: 'Now',     overdue: true, priorities: ['high'] },
@@ -215,14 +217,30 @@ app.post('/auth/register', async (req, res) => {
   try {
     const { username, password, email } = req.body;
 
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password are required' });
+    if (!username || !password || !email) {
+      return res.status(400).json({ error: 'Username, password, and email are required' });
     }
 
     const user = await userService.register(username, password, email);
-    const token = authService.generateToken(user.userId, user.username);
 
-    res.status(201).json({ message: 'User registered successfully', user, token });
+    // Generate a verification token and send the confirmation email
+    const verificationToken = await userService.createVerificationToken(user.userId);
+    const baseUrl = process.env.WEB_URL || 'http://localhost';
+    const verifyUrl = `${baseUrl}/auth/verify-email?token=${verificationToken}`;
+
+    try {
+      await sendVerificationEmail({
+        to:        user.email,
+        username:  user.username,
+        verifyUrl,
+        createdAt: user.createdAt,
+      });
+    } catch (emailErr) {
+      console.error('Failed to send verification email:', emailErr.message);
+      // Account is created; user can request a resend
+    }
+
+    res.status(201).json({ message: 'Account created. Please check your email to verify your address.' });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -241,7 +259,70 @@ app.post('/auth/login', async (req, res) => {
 
     res.json({ message: 'Login successful', user, token });
   } catch (error) {
+    if (error.code === 'EMAIL_NOT_VERIFIED') {
+      return res.status(403).json({ error: error.message, code: 'EMAIL_NOT_VERIFIED' });
+    }
     res.status(401).json({ error: error.message });
+  }
+});
+
+// GET /auth/verify-email?token=... — verify email, issue JWT, redirect to pricing
+app.get('/auth/verify-email', async (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(400).send('Missing verification token.');
+
+  try {
+    const user = await userService.verifyEmailToken(token);
+    const jwt  = authService.generateToken(user.userId, user.username);
+    const baseUrl = (process.env.WEB_URL || '').replace(/\/$/, '');
+    // Pass JWT via URL fragment so it is never sent to any server
+    res.redirect(`${baseUrl}/pricing.html#token=${jwt}`);
+  } catch (err) {
+    // Show a plain error page so the user knows what happened
+    res.status(400).send(`
+      <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+      <title>Verification Failed</title>
+      <link rel="stylesheet" href="/style.css">
+      </head><body class="auth-page">
+      <header class="site-header hero">
+        <img src="/images/handsbreadth-logo-web.png" alt="handsbreadth">
+      </header>
+      <div class="auth-wrap"><div class="auth-container">
+        <h1 style="color:#c0392b">Verification Failed</h1>
+        <p>${err.message}</p>
+        <p><a href="/">Return to Sign In</a> and use the resend link if needed.</p>
+      </div></div>
+      <footer class="site-footer">Copyright 2026, handsbreadth LLC</footer>
+      </body></html>
+    `);
+  }
+});
+
+// POST /auth/resend-verification — resend the verification email (no auth required)
+app.post('/auth/resend-verification', async (req, res) => {
+  const { username } = req.body;
+  if (!username) return res.status(400).json({ error: 'username is required' });
+
+  try {
+    const user = await userService.getUserByUsername(username);
+    if (!user) return res.json({ message: 'If that account exists and is unverified, a new email has been sent.' });
+    if (user.emailVerified) return res.json({ message: 'That account is already verified. Please sign in.' });
+
+    const verificationToken = await userService.createVerificationToken(user.userId);
+    const baseUrl = process.env.WEB_URL || 'http://localhost';
+    const verifyUrl = `${baseUrl}/auth/verify-email?token=${verificationToken}`;
+
+    await resendVerificationEmail({
+      to:        user.email,
+      username:  user.username,
+      verifyUrl,
+      createdAt: user.createdAt || new Date().toISOString(),
+    });
+
+    res.json({ message: 'Verification email sent. Please check your inbox.' });
+  } catch (err) {
+    console.error('Resend verification error:', err.message);
+    res.status(500).json({ error: 'Could not send verification email. Please try again later.' });
   }
 });
 
@@ -709,7 +790,19 @@ app.get('/billing/status', authService.requireAuth(), async (req, res) => {
 // POST /billing/create-checkout-session — create a Stripe Checkout session
 app.post('/billing/create-checkout-session', authService.requireAuth(), async (req, res) => {
   if (!stripe) return res.status(503).json({ error: 'Billing not configured' });
-  if (!process.env.STRIPE_PRICE_ID) return res.status(503).json({ error: 'STRIPE_PRICE_ID not configured' });
+
+  const { plan = 'monthly' } = req.body;
+
+  // Resolve price ID based on plan
+  let priceId;
+  if (plan === 'annual') {
+    priceId = process.env.STRIPE_PRICE_ID_ANNUAL;
+    if (!priceId) return res.status(503).json({ error: 'Annual price not configured (STRIPE_PRICE_ID_ANNUAL)' });
+  } else {
+    // monthly and trial both use the monthly price
+    priceId = process.env.STRIPE_PRICE_ID_MONTHLY || process.env.STRIPE_PRICE_ID;
+    if (!priceId) return res.status(503).json({ error: 'STRIPE_PRICE_ID not configured' });
+  }
 
   try {
     const user = await userService.getUser(req.user.userId);
@@ -718,11 +811,16 @@ app.post('/billing/create-checkout-session', authService.requireAuth(), async (r
     const baseUrl = process.env.WEB_URL || 'http://localhost';
     const sessionParams = {
       mode: 'subscription',
-      line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
+      line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${baseUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/pricing.html`,
-      metadata: { userId: req.user.userId },
+      metadata: { userId: req.user.userId, plan },
     };
+
+    if (plan === 'trial') {
+      const trialDays = parseInt(process.env.STRIPE_TRIAL_DAYS || '14', 10);
+      sessionParams.subscription_data = { trial_period_days: trialDays };
+    }
 
     if (user.stripeCustomerId) {
       sessionParams.customer = user.stripeCustomerId;
@@ -734,6 +832,33 @@ app.post('/billing/create-checkout-session', authService.requireAuth(), async (r
     res.json({ url: session.url });
   } catch (err) {
     console.error('Stripe checkout error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /billing/session-info — fetch plan details for a completed checkout session
+app.get('/billing/session-info', authService.requireAuth(), async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: 'Billing not configured' });
+  const { session_id } = req.query;
+  if (!session_id) return res.status(400).json({ error: 'session_id required' });
+
+  try {
+    const session = await stripe.checkout.sessions.retrieve(session_id, {
+      expand: ['subscription']
+    });
+
+    if (session.metadata?.userId !== req.user.userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const sub = session.subscription;
+    res.json({
+      plan:              session.metadata?.plan || 'monthly',
+      status:            sub?.status || 'active',
+      trialEnd:          sub?.trial_end          ? new Date(sub.trial_end          * 1000).toISOString() : null,
+      currentPeriodEnd:  sub?.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
+    });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

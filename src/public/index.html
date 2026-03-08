@@ -34,6 +34,12 @@
       <button type="submit" class="btn btn-primary">Sign In</button>
     </form>
 
+    <!-- Unverified-email notice (shown after failed login due to unverified address) -->
+    <div id="unverified-notice" style="display:none;margin-top:.75rem;padding:.85rem 1rem;background:#fff8e1;border:1px solid #ffe082;border-radius:8px;font-size:.88rem;color:#555;line-height:1.5">
+      Your email address has not been verified.
+      <a href="#" id="resend-link" style="color:#182471;font-weight:600">Resend verification email</a>
+    </div>
+
     <!-- Register form (hidden initially) -->
     <form id="register-form" style="display:none">
       <div class="form-group">
@@ -41,17 +47,36 @@
         <input id="reg-username" type="text" autocomplete="username" required>
       </div>
       <div class="form-group">
-        <label for="reg-email">Email <span style="color:#999;font-weight:400">(optional)</span></label>
-        <input id="reg-email" type="email" autocomplete="email">
-      </div>
-      <div class="form-group">
         <label for="reg-password">Password</label>
         <input id="reg-password" type="password" autocomplete="new-password" required>
+      </div>
+      <div class="form-group">
+        <label for="reg-email">Email</label>
+        <input id="reg-email" type="email" autocomplete="email" required>
       </div>
       <button type="submit" class="btn btn-primary">Create Account</button>
     </form>
 
-    <div class="toggle-link">
+    <!-- Post-registration confirmation (shown after successful registration) -->
+    <div id="check-email-notice" style="display:none;text-align:center">
+      <div style="width:56px;height:56px;background:#6fb768;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem">
+        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" width="28" height="28">
+          <path d="M4 8h24v16H4z" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M4 8l12 10L28 8" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <h2 style="color:#182471;font-size:1.2rem;margin:0 0 .5rem">Check your email</h2>
+      <p style="color:#555;font-size:.93rem;line-height:1.6;margin:0 0 1rem">
+        We sent a verification link to <strong id="reg-email-display"></strong>.
+        Click the link in that email to complete your registration.
+      </p>
+      <p style="font-size:.8rem;color:#aaa">
+        Didn't receive it?
+        <a href="#" id="resend-after-reg-link" style="color:#182471;font-weight:600">Resend the email</a>
+      </p>
+    </div>
+
+    <div class="toggle-link" id="toggle-area">
       <span id="toggle-text">Don't have an account?</span>
       <a id="toggle-link" onclick="toggleForm()">Register</a>
     </div>
@@ -65,14 +90,18 @@
     }
 
     let showingLogin = true;
+    let lastUsername = '';
 
     function toggleForm() {
       showingLogin = !showingLogin;
-      document.getElementById('login-form').style.display = showingLogin ? '' : 'none';
-      document.getElementById('register-form').style.display = showingLogin ? 'none' : '';
-      document.getElementById('form-title').textContent = showingLogin ? 'Sign In' : 'Create Account';
-      document.getElementById('toggle-text').textContent = showingLogin ? "Don't have an account?" : 'Already have an account?';
-      document.getElementById('toggle-link').textContent = showingLogin ? 'Register' : 'Sign In';
+      document.getElementById('login-form').style.display          = showingLogin ? '' : 'none';
+      document.getElementById('register-form').style.display        = showingLogin ? 'none' : '';
+      document.getElementById('check-email-notice').style.display   = 'none';
+      document.getElementById('unverified-notice').style.display    = 'none';
+      document.getElementById('form-title').textContent             = showingLogin ? 'Sign In' : 'Create Account';
+      document.getElementById('toggle-text').textContent            = showingLogin ? "Don't have an account?" : 'Already have an account?';
+      document.getElementById('toggle-link').textContent            = showingLogin ? 'Register' : 'Sign In';
+      document.getElementById('toggle-area').style.display          = '';
       hideError();
     }
 
@@ -86,19 +115,29 @@
       document.getElementById('error-msg').style.display = 'none';
     }
 
+    // ── Login ────────────────────────────────────────────────────
     document.getElementById('login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       hideError();
+      document.getElementById('unverified-notice').style.display = 'none';
       const username = document.getElementById('login-username').value.trim();
       const password = document.getElementById('login-password').value;
+      lastUsername = username;
       try {
-        const res = await fetch('/auth/login', {
+        const res  = await fetch('/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password })
         });
         const data = await res.json();
-        if (!res.ok) { showError(data.error || 'Login failed'); return; }
+        if (!res.ok) {
+          if (data.code === 'EMAIL_NOT_VERIFIED') {
+            document.getElementById('unverified-notice').style.display = '';
+          } else {
+            showError(data.error || 'Login failed');
+          }
+          return;
+        }
         localStorage.setItem('token', data.token);
         window.location.href = '/lists.html';
       } catch {
@@ -106,26 +145,69 @@
       }
     });
 
+    // ── Resend from login page ───────────────────────────────────
+    document.getElementById('resend-link').addEventListener('click', async (e) => {
+      e.preventDefault();
+      await doResend(lastUsername, e.target);
+    });
+
+    // ── Register ─────────────────────────────────────────────────
     document.getElementById('register-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       hideError();
       const username = document.getElementById('reg-username').value.trim();
-      const email    = document.getElementById('reg-email').value.trim();
       const password = document.getElementById('reg-password').value;
+      const email    = document.getElementById('reg-email').value.trim();
+      lastUsername   = username;
       try {
-        const res = await fetch('/auth/register', {
+        const res  = await fetch('/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password, email: email || undefined })
+          body: JSON.stringify({ username, password, email })
         });
         const data = await res.json();
         if (!res.ok) { showError(data.error || 'Registration failed'); return; }
-        localStorage.setItem('token', data.token);
-        window.location.href = '/pricing.html';
+
+        // Show the "check your email" panel
+        document.getElementById('register-form').style.display      = 'none';
+        document.getElementById('toggle-area').style.display        = 'none';
+        document.getElementById('check-email-notice').style.display = '';
+        document.getElementById('reg-email-display').textContent    = email;
+        document.getElementById('form-title').textContent           = 'Account Created';
       } catch {
         showError('Could not reach the server. Is it running?');
       }
     });
+
+    // ── Resend from post-register panel ──────────────────────────
+    document.getElementById('resend-after-reg-link').addEventListener('click', async (e) => {
+      e.preventDefault();
+      await doResend(lastUsername, e.target);
+    });
+
+    // ── Shared resend helper ─────────────────────────────────────
+    async function doResend(username, linkEl) {
+      if (!username) {
+        showError('Please enter your username and try again.');
+        return;
+      }
+      const originalText = linkEl.textContent;
+      linkEl.textContent = 'Sending…';
+      try {
+        const res  = await fetch('/auth/resend-verification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username })
+        });
+        const data = await res.json();
+        if (!res.ok) { showError(data.error || 'Could not resend email.'); }
+        else         { showError(data.message); document.getElementById('error-msg').style.color = '#2e7d32'; }
+      } catch {
+        showError('Could not reach the server. Is it running?');
+      } finally {
+        linkEl.textContent = originalText;
+      }
+    }
   </script>
   <footer class="site-footer">Copyright 2026, handsbreadth LLC</footer>
 </body>
