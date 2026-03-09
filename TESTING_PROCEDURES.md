@@ -16,6 +16,14 @@ The script also accepts a username or email as an argument if you ever need a di
     npm run get-verify-url -- someusername
     ```
 
+## Stripe cancellation flow testing
+
+To properly test the cancellation flow you'll need a user who completed checkout through Stripe's test mode. Here's the quickest path:
+
+Register a new account (e.g. stripetest) and verify it
+Go through /pricing.html and complete checkout using a Stripe test card: 4242 4242 4242 4242, any future expiry, any CVC
+That will set a real stripe_customer_id and subscription_status = 'active' via the webhook, and the cancellation flow will be fully testable
+
 ## Stripe testing information
 | Field	| Value
 |---|---|

@@ -148,11 +148,60 @@
       </div>
     </div>
 
+    <div class="section-title" style="margin-top:2rem">Subscription</div>
+    <div class="provider-card" id="subscription-card">
+      <div class="provider-info">
+        <div class="provider-name" id="sub-plan-label">Loading…</div>
+        <div class="provider-desc" id="sub-status-desc"></div>
+      </div>
+      <div class="provider-actions" id="sub-actions"></div>
+    </div>
+
     <p style="margin-top:2rem;font-size:.8rem;color:#999;text-align:center">
       <a href="/privacy" style="color:#999">Privacy Policy</a> &nbsp;·&nbsp;
       <a href="/terms" style="color:#999">Terms of Service</a>
     </p>
 
+  </div>
+
+  <!-- ── Cancel subscription modal ── -->
+  <div id="cancel-modal" class="modal-overlay" style="display:none" onclick="handleCancelOverlayClick(event)">
+    <div class="modal-box">
+      <h2>Cancel Subscription</h2>
+      <p style="color:#555;margin:.25rem 0 1.25rem">We're sorry to see you go. Before you cancel, could you tell us why?</p>
+
+      <div style="margin-bottom:1.25rem;display:flex;flex-direction:column;gap:.6rem">
+        <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer">
+          <input type="radio" name="cancel-reason" value="too_expensive"> Too expensive
+        </label>
+        <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer">
+          <input type="radio" name="cancel-reason" value="not_using"> Not using it enough
+        </label>
+        <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer">
+          <input type="radio" name="cancel-reason" value="missing_features"> Missing features I need
+        </label>
+        <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer">
+          <input type="radio" name="cancel-reason" value="switching"> Switching to another app
+        </label>
+        <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer">
+          <input type="radio" name="cancel-reason" value="other"> Other
+        </label>
+      </div>
+
+      <!-- Shown only for annual plan subscribers -->
+      <div id="monthly-suggestion" style="display:none;background:#f0f7ff;border:1px solid #b8d8f8;border-radius:8px;padding:1rem;margin-bottom:1.25rem">
+        <div style="font-weight:600;margin-bottom:.3rem">Consider switching to the Monthly plan instead</div>
+        <div style="font-size:.9rem;color:#444;margin-bottom:.75rem">You're on the Annual plan. If cost is a concern, you can switch to monthly billing ($8/month) and your current period's benefits continue until <span id="monthly-switch-date"></span>.</div>
+        <button class="btn btn-primary btn-sm" onclick="switchToMonthly()">Switch to Monthly Instead</button>
+      </div>
+
+      <div id="cancel-period-notice" style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:.875rem 1rem;margin-bottom:1.25rem;font-size:.9rem;color:#555"></div>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeCancelModal()">Keep My Subscription</button>
+        <button class="btn btn-danger" id="confirm-cancel-btn" onclick="confirmCancellation()">Confirm Cancellation</button>
+      </div>
+    </div>
   </div>
 
   <!-- ── Import preview modal ── -->
@@ -389,7 +438,133 @@
       }
     }
 
+    // ── Subscription management ────────────────────────────────
+
+    let billingInfo = null;
+
+    function fmtDate(iso) {
+      return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    }
+
+    async function loadSubscriptionInfo() {
+      try {
+        const res = await fetch('/billing/status', { headers: authHeaders() });
+        if (!res.ok) return;
+        billingInfo = await res.json();
+        renderSubscriptionCard();
+      } catch { /* silent — billing may not be configured */ }
+    }
+
+    function renderSubscriptionCard() {
+      if (!billingInfo) return;
+      const { subscriptionStatus, plan, currentPeriodEnd, cancelAtPeriodEnd } = billingInfo;
+      const planLabel  = document.getElementById('sub-plan-label');
+      const statusDesc = document.getElementById('sub-status-desc');
+      const actions    = document.getElementById('sub-actions');
+
+      if (subscriptionStatus === 'none' || subscriptionStatus === 'canceled') {
+        planLabel.textContent  = 'No active subscription';
+        statusDesc.textContent = 'Subscribe to access UpQ features.';
+        actions.innerHTML = `<a href="/pricing.html" class="btn btn-primary btn-sm">View Plans</a>`;
+        return;
+      }
+
+      const planName = plan === 'annual' ? 'Annual Plan' : 'Monthly Plan';
+      planLabel.textContent = planName;
+
+      if (cancelAtPeriodEnd) {
+        statusDesc.textContent = currentPeriodEnd
+          ? `Cancellation scheduled — access continues until ${fmtDate(currentPeriodEnd)}`
+          : 'Cancellation pending at end of billing period';
+        actions.innerHTML = '';
+      } else {
+        statusDesc.textContent = currentPeriodEnd ? `Renews ${fmtDate(currentPeriodEnd)}` : 'Active';
+        actions.innerHTML = `<button class="btn btn-danger btn-sm" onclick="openCancelModal()">Cancel Subscription</button>`;
+      }
+    }
+
+    function openCancelModal() {
+      // Reset radio selection
+      document.querySelectorAll('input[name="cancel-reason"]').forEach(r => r.checked = false);
+
+      // Annual plan suggestion
+      const isAnnual = billingInfo?.plan === 'annual';
+      const suggestion = document.getElementById('monthly-suggestion');
+      suggestion.style.display = isAnnual ? '' : 'none';
+      if (isAnnual && billingInfo?.currentPeriodEnd) {
+        document.getElementById('monthly-switch-date').textContent = fmtDate(billingInfo.currentPeriodEnd);
+      }
+
+      // Effective date notice
+      const notice = document.getElementById('cancel-period-notice');
+      notice.textContent = billingInfo?.currentPeriodEnd
+        ? `Your subscription will remain active until ${fmtDate(billingInfo.currentPeriodEnd)}. You will not be charged again after that date.`
+        : 'Your subscription will remain active until the end of your current billing period.';
+
+      const btn = document.getElementById('confirm-cancel-btn');
+      btn.disabled    = false;
+      btn.textContent = 'Confirm Cancellation';
+
+      document.getElementById('cancel-modal').style.display = 'flex';
+    }
+
+    function closeCancelModal() {
+      document.getElementById('cancel-modal').style.display = 'none';
+    }
+
+    function handleCancelOverlayClick(e) {
+      if (e.target === document.getElementById('cancel-modal')) closeCancelModal();
+    }
+
+    async function confirmCancellation() {
+      const btn = document.getElementById('confirm-cancel-btn');
+      btn.disabled    = true;
+      btn.textContent = 'Canceling…';
+      try {
+        const res = await fetch('/billing/cancel-subscription', {
+          method: 'POST',
+          headers: authHeaders()
+        });
+        const data = await res.json();
+        if (!res.ok) { showBanner(data.error || 'Failed to cancel subscription.', 'error'); return; }
+
+        billingInfo = { ...billingInfo, cancelAtPeriodEnd: true, currentPeriodEnd: data.currentPeriodEnd };
+        renderSubscriptionCard();
+        closeCancelModal();
+        showBanner(`Subscription canceled. You have access until ${fmtDate(data.currentPeriodEnd)}.`);
+      } catch {
+        showBanner('Could not reach the server.', 'error');
+      } finally {
+        btn.disabled    = false;
+        btn.textContent = 'Confirm Cancellation';
+      }
+    }
+
+    async function switchToMonthly() {
+      const btn = document.querySelector('#monthly-suggestion .btn');
+      btn.disabled    = true;
+      btn.textContent = 'Switching…';
+      try {
+        const res = await fetch('/billing/switch-to-monthly', {
+          method: 'POST',
+          headers: authHeaders()
+        });
+        const data = await res.json();
+        if (!res.ok) { showBanner(data.error || 'Could not switch plan.', 'error'); return; }
+
+        closeCancelModal();
+        showBanner('Switched to Monthly plan. Your annual benefits continue until the current period ends.');
+        await loadSubscriptionInfo();
+      } catch {
+        showBanner('Could not reach the server.', 'error');
+      } finally {
+        btn.disabled    = false;
+        btn.textContent = 'Switch to Monthly Instead';
+      }
+    }
+
     init();
+    loadSubscriptionInfo();
     loadClassificationRules();
 
     // ── Export / Import ─────────────────────────────────────────
