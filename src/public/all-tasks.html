@@ -10,11 +10,41 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UpQ task server — All Tasks</title>
   <link rel="stylesheet" href="style.css">
+  <style>
+    .task-list-col {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: .25rem;
+      align-self: center;
+      font-size: .75rem;
+      color: #666;
+      text-decoration: none;
+      white-space: nowrap;
+      padding: .2rem .5rem;
+      border: 1px solid #e0e0e5;
+      border-radius: 6px;
+      background: #f8f8fa;
+      transition: background .12s, color .12s;
+      width: 160px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      justify-content: flex-start;
+    }
+    .task-list-col:hover { background: #eeeef4; color: #333; }
+    .task-card-done .task-list-col { color: #aaa; border-color: #ebebeb; }
+  </style>
 </head>
 <body class="dashboard">
   <header class="site-header">
     <a href="/lists.html"><img src="/images/handsbreadth-logo-web.png" alt="handsbreadth"></a>
-    <span class="site-header-title">UpQ task server</span>
+    <div style="display:flex;align-items:center;gap:.5rem">
+      <img src="/images/UpQ-branding-image-web.png" alt="UpQ" style="height:40px;width:auto;border-radius:0">
+      <div style="display:flex;flex-direction:column;line-height:1.15;font-size:.82rem;font-weight:600;color:#fff;letter-spacing:.01em;text-align:left">
+        <span>task</span>
+        <span>server</span>
+      </div>
+    </div>
   </header>
   <div class="dashboard-container">
 
@@ -251,7 +281,7 @@
       const notes    = task.notes   ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
       const p        = PROVIDERS[task.provider] || { label: task.provider, icon: '📋' };
       const listLink = `/tasks.html?provider=${encodeURIComponent(task.provider)}&listId=${encodeURIComponent(task.listId)}&listName=${encodeURIComponent(task.listName)}`;
-      const providerBadge = `<a class="task-provider-badge" href="${listLink}" title="Open ${escHtml(task.listName)}">${p.icon} ${escHtml(task.listName)}</a>`;
+      const listCol  = `<a class="task-list-col" href="${listLink}" title="Open ${escHtml(task.listName)}">${p.icon} ${escHtml(task.listName)}</a>`;
       const hasDetails = !!(due || notes);
 
       const completeBtn = done
@@ -267,8 +297,8 @@
             ${hasDetails ? `<div class="task-details">${due}${notes}</div>` : ''}
           </div>
           ${hasDetails ? '<div class="task-expand-icon" onclick="toggleExpand(this.previousElementSibling)">›</div>' : ''}
+          ${listCol}
           <div class="task-actions">
-            ${providerBadge}
             ${!done ? `<button class="task-action-btn task-action-delete" title="Delete task" onclick="openDeleteModal('${escHtml(task.id)}')">Delete</button>` : ''}
           </div>
         </div>
