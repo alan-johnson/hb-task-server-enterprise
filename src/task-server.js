@@ -805,7 +805,30 @@ app.get('/billing/status', authService.requireAuth(), async (req, res) => {
   try {
     const user = await userService.getUser(req.user.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json({ subscriptionStatus: user.subscriptionStatus || 'none' });
+
+    const response = { subscriptionStatus: user.subscriptionStatus || 'none' };
+
+    if (stripe && user.stripeCustomerId && user.subscriptionStatus === 'active') {
+      try {
+        const subscriptions = await stripe.subscriptions.list({
+          customer: user.stripeCustomerId,
+          status: 'active',
+          limit: 1,
+          expand: ['data.items.data.price']
+        });
+        if (subscriptions.data.length > 0) {
+          const sub  = subscriptions.data[0];
+          const price = sub.items.data[0]?.price;
+          response.plan             = price?.recurring?.interval === 'year' ? 'annual' : 'monthly';
+          response.currentPeriodEnd = new Date(sub.current_period_end * 1000).toISOString();
+          response.cancelAtPeriodEnd = sub.cancel_at_period_end;
+        }
+      } catch (stripeErr) {
+        console.error('Stripe status lookup error:', stripeErr.message);
+      }
+    }
+
+    res.json(response);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -883,6 +906,78 @@ app.get('/billing/session-info', authService.requireAuth(), async (req, res) => 
       currentPeriodEnd:  sub?.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
     });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /billing/cancel-subscription — schedule cancellation at end of current period
+app.post('/billing/cancel-subscription', authService.requireAuth(), async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: 'Billing not configured' });
+
+  try {
+    const user = await userService.getUser(req.user.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user.stripeCustomerId) return res.status(400).json({ error: 'No active subscription found' });
+
+    const subscriptions = await stripe.subscriptions.list({
+      customer: user.stripeCustomerId,
+      status: 'active',
+      limit: 1
+    });
+    if (subscriptions.data.length === 0) {
+      return res.status(400).json({ error: 'No active subscription found' });
+    }
+
+    const sub     = subscriptions.data[0];
+    const updated = await stripe.subscriptions.update(sub.id, { cancel_at_period_end: true });
+
+    res.json({
+      cancelAtPeriodEnd: updated.cancel_at_period_end,
+      currentPeriodEnd:  new Date(updated.current_period_end * 1000).toISOString()
+    });
+  } catch (err) {
+    console.error('Stripe cancel error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /billing/switch-to-monthly — downgrade annual plan to monthly at next renewal
+app.post('/billing/switch-to-monthly', authService.requireAuth(), async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: 'Billing not configured' });
+
+  const monthlyPriceId = process.env.STRIPE_PRICE_ID_MONTHLY || process.env.STRIPE_PRICE_ID;
+  if (!monthlyPriceId) return res.status(503).json({ error: 'Monthly price not configured' });
+
+  try {
+    const user = await userService.getUser(req.user.userId);
+    if (!user?.stripeCustomerId) return res.status(400).json({ error: 'No active subscription' });
+
+    const subscriptions = await stripe.subscriptions.list({
+      customer: user.stripeCustomerId,
+      status: 'active',
+      limit: 1,
+      expand: ['data.items.data.price']
+    });
+    if (subscriptions.data.length === 0) return res.status(400).json({ error: 'No active subscription' });
+
+    const sub  = subscriptions.data[0];
+    const item = sub.items.data[0];
+
+    if (item.price?.recurring?.interval !== 'year') {
+      return res.status(400).json({ error: 'Already on a monthly plan' });
+    }
+
+    await stripe.subscriptions.update(sub.id, {
+      cancel_at_period_end: false,
+      proration_behavior:   'none',
+      items: [{ id: item.id, price: monthlyPriceId }]
+    });
+
+    res.json({
+      currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString()
+    });
+  } catch (err) {
+    console.error('Stripe switch-to-monthly error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
