@@ -2,7 +2,7 @@
 
 ## Registration
 1. Register with the following:
-    username = alan456
+    username = alan455
     password = TestingAccount 
     email = johnsonalan006@gmail.com
 
