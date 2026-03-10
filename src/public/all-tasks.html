@@ -146,38 +146,6 @@
 
     // ── Classification helpers ──────────────────────────────────
 
-    // Returns the internal bucket key: 'now' | 'not_now' | 'later'
-    function classifyTask(task) {
-      const cfg = classificationConfig;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      let dueDate = null;
-      if (task.dueDate) {
-        const m = task.dueDate.match(/(\d{4})-(\d{2})-(\d{2})/);
-        if (m) {
-          dueDate = new Date(+m[1], +m[2] - 1, +m[3]);
-        } else {
-          const d = new Date(task.dueDate);
-          if (!isNaN(d)) { dueDate = new Date(d); dueDate.setHours(0, 0, 0, 0); }
-        }
-      }
-
-      const priority  = task.priority || 'low';
-      const isOverdue = dueDate && dueDate <= today;
-      const isFuture  = dueDate && dueDate > today;
-
-      const nowMatch = (cfg.now.overdue && isOverdue) ||
-                       (cfg.now.priorities && cfg.now.priorities.includes(priority));
-      if (nowMatch) return 'now';
-
-      const notNowMatch = (cfg.not_now.future_due && isFuture) ||
-                          (cfg.not_now.priorities && cfg.not_now.priorities.includes(priority));
-      if (notNowMatch) return 'not_now';
-
-      return 'later';
-    }
-
     function bucketLabel(key) {
       if (!classificationConfig) return key;
       return { now: classificationConfig.now.label, not_now: classificationConfig.not_now.label, later: classificationConfig.later.label }[key] || key;
@@ -238,7 +206,7 @@
 
       const filtered = activeFilter === 'all'
         ? incomplete
-        : incomplete.filter(t => classifyTask(t) === activeFilter);
+        : incomplete.filter(t => t.classification === activeFilter);
 
       const showingAll = activeFilter === 'all';
 
@@ -254,7 +222,7 @@
 
       if (showingAll && filtered.length) {
         const groups = { now: [], not_now: [], later: [] };
-        for (const t of filtered) groups[classifyTask(t)].push(t);
+        for (const t of filtered) groups[t.classification].push(t);
         for (const key of ['now', 'not_now', 'later']) {
           if (!groups[key].length) continue;
           const label = bucketLabel(key);
@@ -275,7 +243,7 @@
 
     function taskCard(task) {
       const done     = task.completed;
-      const tag      = done ? null : classifyTask(task);
+      const tag      = done ? null : task.classification;
       const tagPill  = tag ? `<span class="tag-pill tag-pill-${bucketCss(tag)}">${escHtml(bucketLabel(tag))}</span>` : '';
       const due      = task.dueDate ? `<span class="task-due">Due ${formatDate(task.dueDate)}</span>` : '';
       const notes    = task.notes   ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';

@@ -277,7 +277,8 @@ A lightweight in-memory store (`SimpleCache`) with automatic TTL expiry. No exte
 | Provider status (`status:{userId}:{provider}`) | 5 minutes | Provider disconnect |
 | Task lists (`lists:{userId}:{provider}`) | 2 minutes | — |
 | Task counts (`counts:{userId}:{provider}:{flag}`) | 2 minutes | Provider disconnect, preferences change, task create, complete, delete |
-| Tasks (`tasks:{userId}:{provider}:{listId}`) | 30 seconds | Task create, update, complete, delete |
+| Tasks (`tasks:{userId}:{provider}:{listId}`) | 30 seconds | Task create, update, complete, delete, **classification rule change** |
+| Unified tasks (`unified:{userId}`) | 30 seconds | Task create, update, complete, delete, **classification rule change** |
 
 **Benefits:**
 - Dramatically reduces calls to external task APIs (Microsoft Graph, Google Tasks API) for frequently-visited data
@@ -431,8 +432,8 @@ A browser-based interface served as static files from `src/public/` directly by 
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/auth/me/classification` | Yes | Return effective rules (user's custom or server defaults) and whether they are custom |
-| `PUT` | `/auth/me/classification` | Yes | Save custom classification rules for this user |
-| `DELETE` | `/auth/me/classification` | Yes | Reset to server defaults |
+| `PUT` | `/auth/me/classification` | Yes | Save custom classification rules; flushes all task caches for this user |
+| `DELETE` | `/auth/me/classification` | Yes | Reset to server defaults; flushes all task caches for this user |
 | `POST` | `/auth/me/classification/parse` | Yes | Parse a TOML classification file and return validated rules without saving |
 
 ### Billing Endpoints
@@ -460,13 +461,20 @@ All task endpoints require a `Bearer` token. The provider is selected by `?provi
 | `PATCH` | `/api/lists/:listId/tasks/:taskId/complete` | Mark a task as complete |
 | `DELETE` | `/api/lists/:listId/tasks/:taskId` | Delete a task permanently |
 
+All three GET task endpoints (`/api/tasks/unified`, `/api/lists/:listId/tasks`, `/api/lists/:listId/tasks/:taskId`) include a `classification` field on every task object:
+
+```json
+{ "classification": "now" | "not_now" | "later" | null }
+```
+
+`null` is returned for completed tasks. The classification is computed server-side using the requesting user's effective rules (custom rules if set, otherwise server defaults). Clients do not need to implement any classification logic.
+
 ### Other
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/health` | Health check — returns `{ status: "ok", timestamp }` |
 | `GET` | `/api/providers` | List enabled providers and the default |
-| `GET` | `/api/config/classification` | Return the server-wide default classification config |
 | `GET` | `/privacy` | Privacy policy page |
 | `GET` | `/terms` | Terms of service page |
 
@@ -520,7 +528,7 @@ The `showCompleted` boolean preference controls whether completed tasks are incl
 
 ### Task Classification Rules
 
-Tasks are classified into three buckets — **Now**, **Not Now**, and **Later** — based on configurable rules.
+Tasks are classified into three buckets — **Now**, **Not Now**, and **Later** — based on configurable rules. Classification is computed **server-side** and returned as a `classification` field on every task object from the three GET task endpoints.
 
 | Bucket | Default criteria |
 |---|---|
@@ -528,18 +536,23 @@ Tasks are classified into three buckets — **Now**, **Not Now**, and **Later** 
 | Not Now | Tasks with future due dates; normal-priority tasks |
 | Later | Everything else (catch-all) |
 
+Rules are evaluated in order (`now` → `not_now` → `later`). Conditions within a bucket are OR'd. Completed tasks always receive `classification: null`.
+
 Rules are defined server-wide in `config/classification.toml` and can be overridden per user.
 
 | Operation | Endpoint |
 |---|---|
 | View effective rules | `GET /auth/me/classification` — returns custom rules if set, otherwise server defaults; includes `isCustom` flag |
-| Save custom rules | `PUT /auth/me/classification` — body: `{ now, not_now, later }` |
-| Reset to defaults | `DELETE /auth/me/classification` |
+| Save custom rules | `PUT /auth/me/classification` — body: `{ now, not_now, later }`; flushes task caches |
+| Reset to defaults | `DELETE /auth/me/classification` — flushes task caches |
 | Validate a TOML file | `POST /auth/me/classification/parse` — parses and validates without saving |
 | Export rules | Settings UI → Export (downloads a `.toml` file) |
 | Import rules | Settings UI → Import (upload a `.toml` file; shows a preview before applying) |
 
 **Benefits:**
+- Classification is applied once on the server — clients read `task.classification` directly and need no classification logic of their own
+- Any client (web UI, mobile app, third-party integration) automatically receives pre-classified tasks without reimplementing the rules
+- Changing classification rules immediately flushes task caches, so the next request reflects the new rules
 - Server-wide defaults apply to all users without any configuration, so the feature works out of the box
 - Per-user overrides are stored as JSONB in PostgreSQL — no extra table required
 - TOML import/export lets power users manage rules in a text editor and share them across accounts

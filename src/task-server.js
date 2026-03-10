@@ -40,6 +40,37 @@ function loadClassificationConfig() {
 
 const classificationConfig = loadClassificationConfig();
 
+function classifyTask(task, rules) {
+  if (task.completed) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let dueDate = null;
+  if (task.dueDate) {
+    const m = task.dueDate.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (m) {
+      dueDate = new Date(+m[1], +m[2] - 1, +m[3]);
+    } else {
+      const d = new Date(task.dueDate);
+      if (!isNaN(d)) { dueDate = new Date(d); dueDate.setHours(0, 0, 0, 0); }
+    }
+  }
+
+  const priority  = task.priority || 'low';
+  const isOverdue = dueDate && dueDate <= today;
+  const isFuture  = dueDate && dueDate > today;
+
+  const nowMatch = (rules.now.overdue && isOverdue) ||
+                   (rules.now.priorities && rules.now.priorities.includes(priority));
+  if (nowMatch) return 'now';
+
+  const notNowMatch = (rules.not_now.future_due && isFuture) ||
+                      (rules.not_now.priorities && rules.not_now.priorities.includes(priority));
+  if (notNowMatch) return 'not_now';
+
+  return 'later';
+}
+
 const app = express();
 const API_PORT = process.env.API_PORT || process.env.PORT || 3500;
 // Base URL of the web server — used to redirect browsers after OAuth callbacks.
@@ -185,11 +216,6 @@ async function initializeProvider(provider, providerName, userId) {
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-// Classification rules — public so the web UI can fetch them without auth
-app.get('/api/config/classification', (req, res) => {
-  res.json(classificationConfig);
 });
 
 app.get('/api/providers', (req, res) => {
@@ -571,6 +597,8 @@ app.put('/auth/me/classification', authService.requireAuth(), async (req, res) =
     }
     const rules = { now, not_now, later };
     await userService.updateClassificationRules(req.user.userId, rules);
+    cache.deletePrefix(`tasks:${req.user.userId}:`);
+    cache.delete(`unified:${req.user.userId}`);
     res.json({ success: true, rules });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -581,6 +609,8 @@ app.put('/auth/me/classification', authService.requireAuth(), async (req, res) =
 app.delete('/auth/me/classification', authService.requireAuth(), async (req, res) => {
   try {
     await userService.resetClassificationRules(req.user.userId);
+    cache.deletePrefix(`tasks:${req.user.userId}:`);
+    cache.delete(`unified:${req.user.userId}`);
     res.json({ success: true, rules: classificationConfig });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -653,7 +683,9 @@ app.get('/api/tasks/unified', authService.requireAuth(), async (req, res) => {
     } catch { /* skip providers that fail to initialize */ }
   }));
 
-  const result = { user: req.user.username, tasks: allTasks };
+  const rules = await userService.getClassificationRules(userId) || classificationConfig;
+  const annotated = allTasks.map(t => ({ ...t, classification: classifyTask(t, rules) }));
+  const result = { user: req.user.username, tasks: annotated };
   cache.set(cacheKey, result, TTL.tasks);
   res.json(result);
 });
@@ -712,7 +744,9 @@ app.get('/api/lists/:listId/tasks', authService.requireAuth(), async (req, res) 
 
     await initializeProvider(provider, providerName, req.user.userId);
     const tasks = await provider.getTasks(listId);
-    const result = { provider: providerName, user: req.user.username, listId, tasks };
+    const rules = await userService.getClassificationRules(req.user.userId) || classificationConfig;
+    const annotated = tasks.map(t => ({ ...t, classification: classifyTask(t, rules) }));
+    const result = { provider: providerName, user: req.user.username, listId, tasks: annotated };
     cache.set(cacheKey, result, TTL.tasks);
     res.json(result);
   } catch (error) {
@@ -727,7 +761,8 @@ app.get('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), async (re
     await initializeProvider(provider, providerName, req.user.userId);
 
     const task = await provider.getTask(listId, taskId);
-    res.json({ provider: providerName, user: req.user.username, listId, task });
+    const rules = await userService.getClassificationRules(req.user.userId) || classificationConfig;
+    res.json({ provider: providerName, user: req.user.username, listId, task: { ...task, classification: classifyTask(task, rules) } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
