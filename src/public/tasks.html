@@ -259,7 +259,7 @@
 
       if (showingAll && filtered.length) {
         const groups = { now: [], not_now: [], later: [] };
-        for (const t of filtered) groups[t.classification].push(t);
+        for (const t of filtered) groups[t.classification || 'later'].push(t);
         for (const key of ['now', 'not_now', 'later']) {
           if (!groups[key].length) continue;
           const label = bucketLabel(key);
