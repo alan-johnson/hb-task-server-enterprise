@@ -29,7 +29,7 @@ async function main() {
 
   const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
   const userId       = 'admin-' + Date.now();
-  const createdAt    = new Date().toISOString();
+  const createdAt    = new Date().toISOString().replace('T', ' ').replace('Z', '');
 
   // UPSERT: insert the admin or update the existing row if the username already exists.
   await pool.execute(

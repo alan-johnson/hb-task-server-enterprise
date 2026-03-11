@@ -5,6 +5,11 @@ const path = require('path');
 const { pool, encrypt, decrypt } = require('../db/db');
 const cache = require('../db/cache');
 
+// MySQL DATETIME(3) requires 'YYYY-MM-DD HH:MM:SS.mmm', not ISO 8601 'Z' format.
+function toMySQL(date) {
+  return new Date(date).toISOString().replace('T', ' ').replace('Z', '');
+}
+
 class UserService {
   // server.js passes (process.env.DATA_DIR || './data') — accepted but ignored.
   constructor(_ignoredDataDir) {}
@@ -38,7 +43,7 @@ class UserService {
   async register(username, password, email) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const userId = Date.now().toString() + Math.random().toString(36).substring(2);
-    const createdAt = new Date().toISOString();
+    const createdAt = toMySQL(new Date());
 
     try {
       await pool.query(
@@ -108,7 +113,7 @@ class UserService {
   // ---------- storeCredentials ----------
 
   async storeCredentials(userId, provider, credentials) {
-    const updatedAt = new Date().toISOString();
+    const updatedAt = toMySQL(new Date());
     await pool.query(
       `INSERT INTO user_credentials (user_id, provider, access_token, refresh_token, updated_at)
        VALUES (?, ?, ?, ?, ?)
@@ -186,7 +191,7 @@ class UserService {
     const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
     await pool.query(
       'UPDATE users SET verification_token = ?, verification_token_expires = ? WHERE user_id = ?',
-      [token, expires.toISOString(), userId]
+      [token, toMySQL(expires), userId]
     );
     // Invalidate cached user so the token is visible on next load
     const result = await pool.query('SELECT username FROM users WHERE user_id = ?', [userId]);
@@ -238,7 +243,7 @@ class UserService {
     const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
     await pool.query(
       'UPDATE users SET password_reset_token = ?, password_reset_token_expires = ? WHERE user_id = ?',
-      [token, expires.toISOString(), row.user_id]
+      [token, toMySQL(expires), row.user_id]
     );
     await cache.del(`user:id:${row.user_id}`, `user:name:${row.username}`);
     return { token, username: row.username, email: row.email };

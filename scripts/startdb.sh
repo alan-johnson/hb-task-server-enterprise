@@ -1,31 +1,29 @@
 #!/usr/bin/env bash
-# Start PostgreSQL and Redis in the background.
-
-PG_BIN="/opt/homebrew/opt/postgresql@18/bin"
-PG_DATA="/opt/homebrew/var/postgresql@18"
-PG_LOG="/opt/homebrew/var/log/postgresql@18.log"
-REDIS_BIN="/opt/homebrew/opt/redis/bin/redis-server"
-
-# ── PostgreSQL ──────────────────────────────────────────────────────────────
-
-PG_CTL="$(command -v pg_ctl 2>/dev/null || echo "$PG_BIN/pg_ctl")"
-
-if "$PG_BIN/pg_isready" -q 2>/dev/null; then
-  echo "PostgreSQL is already running."
-else
-  echo "Starting PostgreSQL..."
-  LC_ALL="en_US.UTF-8" "$PG_CTL" start -D "$PG_DATA" -l "$PG_LOG" -w
-  echo "  PostgreSQL started. Log: $PG_LOG"
-fi
-
-# ── Redis ───────────────────────────────────────────────────────────────────
+# Start MySQL and Redis in the background.
 
 REDIS_CLI="$(command -v redis-cli 2>/dev/null || echo /opt/homebrew/opt/redis/bin/redis-cli)"
+REDIS_BIN="$(command -v redis-server 2>/dev/null || echo /opt/homebrew/opt/redis/bin/redis-server)"
+
+# ── MySQL ────────────────────────────────────────────────────────────────────
+
+if brew services list 2>/dev/null | grep -q "^mysql.*started"; then
+  echo "MySQL is already running."
+else
+  echo "Starting MySQL..."
+  brew services start mysql
+  echo "  MySQL started."
+fi
+
+# ── Redis ────────────────────────────────────────────────────────────────────
 
 if "$REDIS_CLI" ping 2>/dev/null | grep -q PONG; then
   echo "Redis is already running."
 else
   echo "Starting Redis..."
-  "$REDIS_BIN" --daemonize yes
+  if command -v brew &>/dev/null; then
+    brew services start redis
+  else
+    "$REDIS_BIN" --daemonize yes
+  fi
   echo "  Redis started."
 fi
