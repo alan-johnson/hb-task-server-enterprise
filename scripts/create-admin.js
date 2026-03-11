@@ -17,32 +17,32 @@
 
 require('dotenv').config();
 
-const { Pool } = require('pg');
-const bcrypt   = require('bcrypt');
+const mysql  = require('mysql2/promise');
+const bcrypt = require('bcrypt');
 
 const ADMIN_USERNAME = 'admin';
 const ADMIN_PASSWORD = 'hb-aDmin-67-forewer$';
 const ADMIN_EMAIL    = 'alan@handsbreadth.com';
 
 async function main() {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pool = mysql.createPool(process.env.DATABASE_URL);
 
   const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
   const userId       = 'admin-' + Date.now();
   const createdAt    = new Date().toISOString();
 
   // UPSERT: insert the admin or update the existing row if the username already exists.
-  await pool.query(
+  await pool.execute(
     `INSERT INTO users
        (user_id, username, email, password_hash, created_at, default_provider,
         email_verified, subscription_status)
-     VALUES ($1, $2, $3, $4, $5, 'microsoft', TRUE, 'active')
-     ON CONFLICT (username) DO UPDATE
-       SET email          = EXCLUDED.email,
-           password_hash  = EXCLUDED.password_hash,
-           email_verified = TRUE,
-           subscription_status = 'active',
-           stripe_customer_id  = NULL`,
+     VALUES (?, ?, ?, ?, ?, 'microsoft', TRUE, 'active')
+     ON DUPLICATE KEY UPDATE
+       email               = VALUES(email),
+       password_hash       = VALUES(password_hash),
+       email_verified      = TRUE,
+       subscription_status = 'active',
+       stripe_customer_id  = NULL`,
     [userId, ADMIN_USERNAME, ADMIN_EMAIL, passwordHash, createdAt]
   );
 

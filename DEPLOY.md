@@ -26,7 +26,7 @@ needed for a production-grade enterprise deployment.
 - Linux (Ubuntu 22.04 LTS recommended)
 - Node.js 18 or later
 - npm 9 or later
-- PostgreSQL 14 or later (storage backend)
+- MySQL 8 or later (storage backend)
 - Redis (optional — for multi-instance shared cache)
 - A domain name pointed at the server (required for OAuth redirect URIs)
 - Ports 80 and 443 open in the firewall (for HTTPS via reverse proxy)
@@ -70,19 +70,23 @@ cd /opt/hb-task-server
 npm install --omit=dev
 ```
 
-### Install and configure PostgreSQL
+### Install and configure MySQL
 
 ```bash
-sudo apt-get install -y postgresql postgresql-contrib
+sudo apt-get install -y mysql-server
 
-# Start and enable PostgreSQL
-sudo systemctl enable --now postgresql
+# Start and enable MySQL
+sudo systemctl enable --now mysql
+
+# Secure the installation and set root password
+sudo mysql_secure_installation
 
 # Create the application database and user
-sudo -u postgres psql <<'SQL'
-CREATE USER hbtask WITH PASSWORD 'choose-a-strong-password';
-CREATE DATABASE hb_task_server OWNER hbtask;
-\q
+sudo mysql <<'SQL'
+CREATE DATABASE IF NOT EXISTS hb_task_server CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'hbtask'@'localhost' IDENTIFIED BY 'choose-a-strong-password';
+GRANT ALL PRIVILEGES ON hb_task_server.* TO 'hbtask'@'localhost';
+FLUSH PRIVILEGES;
 SQL
 ```
 
@@ -119,7 +123,7 @@ PORT=3500
 JWT_SECRET=<64-character-random-hex-string>
 
 # Database
-DATABASE_URL=postgres://hbtask:choose-a-strong-password@localhost:5432/hb_task_server
+DATABASE_URL=mysql://hbtask:choose-a-strong-password@localhost:3306/hb_task_server
 
 # Token encryption key (AES-256-GCM) — must be a 64-character hex string:
 #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -155,7 +159,7 @@ DEFAULT_PROVIDER=microsoft
 |---|---|---|
 | `PORT` | No | HTTP port the server listens on. Default: `3500`. |
 | `JWT_SECRET` | **Yes** | Secret used to sign JWT tokens. Must be long and random. |
-| `DATABASE_URL` | **Yes** | PostgreSQL connection string. Format: `postgres://user:pass@host:port/dbname`. |
+| `DATABASE_URL` | **Yes** | MySQL connection string. Format: `mysql://user:pass@host:port/dbname`. |
 | `ENCRYPTION_KEY` | **Yes** | 64-character hex string used for AES-256-GCM encryption of stored OAuth tokens. |
 | `REDIS_URL` | No | Redis connection string. If omitted, all reads go directly to PostgreSQL. |
 | `MICROSOFT_CLIENT_ID` | If using Microsoft | Azure App Registration client ID. |
@@ -431,9 +435,9 @@ Covered in [Section 5](#5-start-the-server). PM2 provides:
 - Log management (`pm2 logs`, `pm2 logrotate`)
 - Cluster mode for multi-core scaling (requires stateless session storage first — see 7.3)
 
-### 7.3 Database — PostgreSQL (already implemented)
+### 7.3 Database — MySQL (already implemented)
 
-The application stores all data in PostgreSQL with AES-256-GCM encrypted OAuth tokens. The schema is applied automatically on startup.
+The application stores all data in MySQL with AES-256-GCM encrypted OAuth tokens. The schema is applied automatically on startup.
 
 **Schema summary:**
 
@@ -447,19 +451,19 @@ The application stores all data in PostgreSQL with AES-256-GCM encrypted OAuth t
 - OAuth access and refresh tokens are encrypted at rest with AES-256-GCM using `ENCRYPTION_KEY`
 - Tokens are only decrypted in memory when needed for an API call
 
-**For horizontal scaling:** add `REDIS_URL` to share the read cache across all instances. Without Redis, each instance reads from PostgreSQL independently (correct but higher DB load).
+**For horizontal scaling:** add `REDIS_URL` to share the read cache across all instances. Without Redis, each instance reads from MySQL independently (correct but higher DB load).
 
-**PostgreSQL backups:**
+**MySQL backups:**
 
 ```bash
 # Daily logical backup
-pg_dump hb_task_server | gzip > /backups/hb_task_server_$(date +%F).sql.gz
+mysqldump -u hbtask -p hb_task_server | gzip > /backups/hb_task_server_$(date +%F).sql.gz
 
 # Restore
-gunzip -c /backups/hb_task_server_2026-03-05.sql.gz | psql hb_task_server
+gunzip -c /backups/hb_task_server_2026-03-05.sql.gz | mysql -u hbtask -p hb_task_server
 ```
 
-For production, prefer continuous WAL archiving (pg_basebackup + WAL streaming) or a managed PostgreSQL service with automatic backups (AWS RDS, Google Cloud SQL, Azure Database for PostgreSQL).
+For production, use a managed MySQL service with automatic backups (AWS RDS, Google Cloud SQL, Azure Database for MySQL) or configure binary log replication for point-in-time recovery.
 
 ### 7.4 Secrets management
 
@@ -545,10 +549,10 @@ Back up PostgreSQL using `pg_dump`:
 
 ```bash
 # Example: daily backup to S3
-pg_dump hb_task_server | gzip | aws s3 cp - s3://your-bucket/backups/hb_task_server_$(date +%F).sql.gz
+mysqldump -u hbtask -p hb_task_server | gzip | aws s3 cp - s3://your-bucket/backups/hb_task_server_$(date +%F).sql.gz
 ```
 
-For production, use a managed PostgreSQL service with automated backups, or configure continuous WAL archiving with point-in-time recovery (PITR).
+For production, use a managed MySQL service with automated backups, or configure binary log replication with point-in-time recovery.
 
 ---
 

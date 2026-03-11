@@ -12,7 +12,7 @@ class UserService {
   async initialize() {
     try {
       await this._createTablesIfNeeded();
-      console.log('UserService: connected to PostgreSQL');
+      console.log('UserService: connected to MySQL');
     } catch (error) {
       console.error('Failed to initialize UserService:', error.message);
       throw error;
@@ -22,7 +22,15 @@ class UserService {
   async _createTablesIfNeeded() {
     const schemaPath = path.join(__dirname, '../db/schema.sql');
     const sql = await fs.readFile(schemaPath, 'utf-8');
-    await pool.query(sql);
+    // Execute each statement individually (mysql2 does not support multi-statement execute)
+    const statements = sql
+      .replace(/--[^\n]*/g, '')
+      .split(';')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+    for (const stmt of statements) {
+      await pool.query(stmt);
+    }
   }
 
   // ---------- register ----------
@@ -35,11 +43,11 @@ class UserService {
     try {
       await pool.query(
         `INSERT INTO users (user_id, username, email, password_hash, created_at, default_provider)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+         VALUES (?, ?, ?, ?, ?, ?)`,
         [userId, username, email || null, hashedPassword, createdAt, 'microsoft']
       );
     } catch (err) {
-      if (err.code === '23505') throw new Error('Username already exists');
+      if (err.code === 'ER_DUP_ENTRY') throw new Error('Username already exists');
       throw err;
     }
 
@@ -85,7 +93,7 @@ class UserService {
     }
 
     const result = await pool.query(
-      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed, stripe_customer_id, subscription_status, email_verified FROM users WHERE user_id = $1',
+      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed, stripe_customer_id, subscription_status, email_verified FROM users WHERE user_id = ?',
       [userId]
     );
     if (!result.rows[0]) return null;
@@ -103,11 +111,11 @@ class UserService {
     const updatedAt = new Date().toISOString();
     await pool.query(
       `INSERT INTO user_credentials (user_id, provider, access_token, refresh_token, updated_at)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (user_id, provider) DO UPDATE SET
-         access_token  = EXCLUDED.access_token,
-         refresh_token = EXCLUDED.refresh_token,
-         updated_at    = EXCLUDED.updated_at`,
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         access_token  = VALUES(access_token),
+         refresh_token = VALUES(refresh_token),
+         updated_at    = VALUES(updated_at)`,
       [userId, provider, encrypt(credentials.accessToken || null), encrypt(credentials.refreshToken || null), updatedAt]
     );
 
@@ -126,7 +134,7 @@ class UserService {
     if (cached) return JSON.parse(cached);
 
     const result = await pool.query(
-      'SELECT access_token, refresh_token, updated_at FROM user_credentials WHERE user_id = $1 AND provider = $2',
+      'SELECT access_token, refresh_token, updated_at FROM user_credentials WHERE user_id = ? AND provider = ?',
       [userId, provider]
     );
     if (!result.rows[0]) return null;
@@ -135,7 +143,7 @@ class UserService {
     const creds = {
       accessToken:  decrypt(row.access_token),
       refreshToken: decrypt(row.refresh_token),
-      updatedAt:    row.updated_at.toISOString(),
+      updatedAt:    new Date(row.updated_at).toISOString(),
     };
     await cache.set(`creds:${userId}:${provider}`, JSON.stringify(creds));
     return creds;
@@ -145,7 +153,7 @@ class UserService {
 
   async removeCredentials(userId, provider) {
     const result = await pool.query(
-      'DELETE FROM user_credentials WHERE user_id = $1 AND provider = $2',
+      'DELETE FROM user_credentials WHERE user_id = ? AND provider = ?',
       [userId, provider]
     );
     if (result.rowCount > 0) {
@@ -159,11 +167,12 @@ class UserService {
 
   async updateDefaultProvider(userId, provider) {
     const result = await pool.query(
-      'UPDATE users SET default_provider = $2 WHERE user_id = $1 RETURNING username',
-      [userId, provider]
+      'UPDATE users SET default_provider = ? WHERE user_id = ?',
+      [provider, userId]
     );
     if (result.rowCount > 0) {
-      const username = result.rows[0].username;
+      const sel = await pool.query('SELECT username FROM users WHERE user_id = ?', [userId]);
+      const username = sel.rows[0]?.username;
       await cache.del(`user:id:${userId}`, `user:name:${username}`);
       return true;
     }
@@ -176,11 +185,11 @@ class UserService {
     const token   = crypto.randomBytes(32).toString('hex');
     const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
     await pool.query(
-      'UPDATE users SET verification_token = $2, verification_token_expires = $3 WHERE user_id = $1',
-      [userId, token, expires.toISOString()]
+      'UPDATE users SET verification_token = ?, verification_token_expires = ? WHERE user_id = ?',
+      [token, expires.toISOString(), userId]
     );
     // Invalidate cached user so the token is visible on next load
-    const result = await pool.query('SELECT username FROM users WHERE user_id = $1', [userId]);
+    const result = await pool.query('SELECT username FROM users WHERE user_id = ?', [userId]);
     if (result.rows[0]) {
       await cache.del(`user:id:${userId}`, `user:name:${result.rows[0].username}`);
     }
@@ -191,7 +200,7 @@ class UserService {
     const result = await pool.query(
       `SELECT user_id, username, email, verification_token_expires
        FROM users
-       WHERE verification_token = $1 AND email_verified = FALSE`,
+       WHERE verification_token = ? AND email_verified = FALSE`,
       [token]
     );
     const row = result.rows[0];
@@ -202,7 +211,7 @@ class UserService {
     await pool.query(
       `UPDATE users
        SET email_verified = TRUE, verification_token = NULL, verification_token_expires = NULL
-       WHERE user_id = $1`,
+       WHERE user_id = ?`,
       [row.user_id]
     );
     await cache.del(`user:id:${row.user_id}`, `user:name:${row.username}`);
@@ -218,7 +227,7 @@ class UserService {
 
   async createPasswordResetToken(email) {
     const result = await pool.query(
-      'SELECT user_id, username, email, email_verified FROM users WHERE email = $1',
+      'SELECT user_id, username, email, email_verified FROM users WHERE email = ?',
       [email]
     );
     const row = result.rows[0];
@@ -228,8 +237,8 @@ class UserService {
     const token   = crypto.randomBytes(32).toString('hex');
     const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
     await pool.query(
-      'UPDATE users SET password_reset_token = $2, password_reset_token_expires = $3 WHERE user_id = $1',
-      [row.user_id, token, expires.toISOString()]
+      'UPDATE users SET password_reset_token = ?, password_reset_token_expires = ? WHERE user_id = ?',
+      [token, expires.toISOString(), row.user_id]
     );
     await cache.del(`user:id:${row.user_id}`, `user:name:${row.username}`);
     return { token, username: row.username, email: row.email };
@@ -237,7 +246,7 @@ class UserService {
 
   async resetPassword(token, newPassword) {
     const result = await pool.query(
-      'SELECT user_id, username, password_reset_token_expires FROM users WHERE password_reset_token = $1',
+      'SELECT user_id, username, password_reset_token_expires FROM users WHERE password_reset_token = ?',
       [token]
     );
     const row = result.rows[0];
@@ -248,9 +257,9 @@ class UserService {
     const passwordHash = await bcrypt.hash(newPassword, 10);
     await pool.query(
       `UPDATE users
-       SET password_hash = $2, password_reset_token = NULL, password_reset_token_expires = NULL
-       WHERE user_id = $1`,
-      [row.user_id, passwordHash]
+       SET password_hash = ?, password_reset_token = NULL, password_reset_token_expires = NULL
+       WHERE user_id = ?`,
+      [passwordHash, row.user_id]
     );
     await cache.del(`user:id:${row.user_id}`, `user:name:${row.username}`);
     return { userId: row.user_id, username: row.username };
@@ -263,7 +272,7 @@ class UserService {
     if (cached) return JSON.parse(cached);
 
     const result = await pool.query(
-      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed, stripe_customer_id, subscription_status, email_verified FROM users WHERE username = $1',
+      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed, stripe_customer_id, subscription_status, email_verified FROM users WHERE username = ?',
       [username]
     );
     if (!result.rows[0]) return null;
@@ -282,7 +291,7 @@ class UserService {
     if (cached) return JSON.parse(cached);
 
     const result = await pool.query(
-      'SELECT classification_rules FROM users WHERE user_id = $1',
+      'SELECT classification_rules FROM users WHERE user_id = ?',
       [userId]
     );
     const rules = result.rows[0]?.classification_rules || null;
@@ -292,15 +301,15 @@ class UserService {
 
   async updateClassificationRules(userId, rules) {
     await pool.query(
-      'UPDATE users SET classification_rules = $2 WHERE user_id = $1',
-      [userId, JSON.stringify(rules)]
+      'UPDATE users SET classification_rules = ? WHERE user_id = ?',
+      [JSON.stringify(rules), userId]
     );
     await cache.del(`classrules:${userId}`);
   }
 
   async resetClassificationRules(userId) {
     await pool.query(
-      'UPDATE users SET classification_rules = NULL WHERE user_id = $1',
+      'UPDATE users SET classification_rules = NULL WHERE user_id = ?',
       [userId]
     );
     await cache.del(`classrules:${userId}`);
@@ -308,11 +317,12 @@ class UserService {
 
   async updatePreferences(userId, { showCompleted }) {
     const result = await pool.query(
-      'UPDATE users SET show_completed = $2 WHERE user_id = $1 RETURNING username',
-      [userId, showCompleted]
+      'UPDATE users SET show_completed = ? WHERE user_id = ?',
+      [showCompleted, userId]
     );
     if (result.rowCount > 0) {
-      const username = result.rows[0].username;
+      const sel = await pool.query('SELECT username FROM users WHERE user_id = ?', [userId]);
+      const username = sel.rows[0]?.username;
       await cache.del(`user:id:${userId}`, `user:name:${username}`);
       return true;
     }
@@ -325,9 +335,9 @@ class UserService {
     const key = crypto.randomBytes(32).toString('hex');
     const keyHash = crypto.createHash('sha256').update(key).digest('hex');
     await pool.query(
-      `INSERT INTO bridge_api_keys (user_id, key_hash)
-       VALUES ($1, $2)
-       ON CONFLICT (user_id) DO UPDATE SET key_hash = EXCLUDED.key_hash, created_at = NOW()`,
+      `INSERT INTO bridge_api_keys (user_id, key_hash, created_at)
+       VALUES (?, ?, NOW())
+       ON DUPLICATE KEY UPDATE key_hash = VALUES(key_hash), created_at = NOW()`,
       [userId, keyHash]
     );
     return key;
@@ -336,7 +346,7 @@ class UserService {
   async getUserIdByBridgeApiKey(apiKey) {
     const keyHash = crypto.createHash('sha256').update(apiKey).digest('hex');
     const result = await pool.query(
-      'SELECT user_id FROM bridge_api_keys WHERE key_hash = $1',
+      'SELECT user_id FROM bridge_api_keys WHERE key_hash = ?',
       [keyHash]
     );
     return result.rows[0]?.user_id || null;
@@ -344,7 +354,7 @@ class UserService {
 
   async revokeBridgeApiKey(userId) {
     const result = await pool.query(
-      'DELETE FROM bridge_api_keys WHERE user_id = $1',
+      'DELETE FROM bridge_api_keys WHERE user_id = ?',
       [userId]
     );
     return result.rowCount > 0;
@@ -352,7 +362,7 @@ class UserService {
 
   async hasBridgeApiKey(userId) {
     const result = await pool.query(
-      'SELECT 1 FROM bridge_api_keys WHERE user_id = $1',
+      'SELECT 1 FROM bridge_api_keys WHERE user_id = ?',
       [userId]
     );
     return result.rowCount > 0;
@@ -362,11 +372,11 @@ class UserService {
 
   async updateSubscription(userId, stripeCustomerId, status) {
     await pool.query(
-      'UPDATE users SET stripe_customer_id = $2, subscription_status = $3 WHERE user_id = $1',
-      [userId, stripeCustomerId, status]
+      'UPDATE users SET stripe_customer_id = ?, subscription_status = ? WHERE user_id = ?',
+      [stripeCustomerId, status, userId]
     );
     await cache.del(`user:id:${userId}`);
-    const result = await pool.query('SELECT username FROM users WHERE user_id = $1', [userId]);
+    const result = await pool.query('SELECT username FROM users WHERE user_id = ?', [userId]);
     if (result.rows[0]) await cache.del(`user:name:${result.rows[0].username}`);
   }
 
@@ -376,12 +386,12 @@ class UserService {
       username:           row.username,
       email:              row.email,
       passwordHash:       row.password_hash,
-      createdAt:          row.created_at.toISOString(),
+      createdAt:          new Date(row.created_at).toISOString(),
       defaultProvider:    row.default_provider,
-      showCompleted:      row.show_completed,
+      showCompleted:      !!row.show_completed,
       stripeCustomerId:   row.stripe_customer_id  || null,
       subscriptionStatus: row.subscription_status || 'none',
-      emailVerified:      row.email_verified       ?? false,
+      emailVerified:      !!row.email_verified,
     };
   }
 }
