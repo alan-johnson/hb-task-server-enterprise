@@ -319,6 +319,47 @@ class UserService {
     return false;
   }
 
+  // ---------- bridge API keys ----------
+
+  async generateBridgeApiKey(userId) {
+    const key = crypto.randomBytes(32).toString('hex');
+    const keyHash = crypto.createHash('sha256').update(key).digest('hex');
+    await pool.query(
+      `INSERT INTO bridge_api_keys (user_id, key_hash)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET key_hash = EXCLUDED.key_hash, created_at = NOW()`,
+      [userId, keyHash]
+    );
+    return key;
+  }
+
+  async getUserIdByBridgeApiKey(apiKey) {
+    const keyHash = crypto.createHash('sha256').update(apiKey).digest('hex');
+    const result = await pool.query(
+      'SELECT user_id FROM bridge_api_keys WHERE key_hash = $1',
+      [keyHash]
+    );
+    return result.rows[0]?.user_id || null;
+  }
+
+  async revokeBridgeApiKey(userId) {
+    const result = await pool.query(
+      'DELETE FROM bridge_api_keys WHERE user_id = $1',
+      [userId]
+    );
+    return result.rowCount > 0;
+  }
+
+  async hasBridgeApiKey(userId) {
+    const result = await pool.query(
+      'SELECT 1 FROM bridge_api_keys WHERE user_id = $1',
+      [userId]
+    );
+    return result.rowCount > 0;
+  }
+
+  // ---------- subscription ----------
+
   async updateSubscription(userId, stripeCustomerId, status) {
     await pool.query(
       'UPDATE users SET stripe_customer_id = $2, subscription_status = $3 WHERE user_id = $1',

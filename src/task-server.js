@@ -1,4 +1,5 @@
 require('dotenv').config();
+const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -8,6 +9,8 @@ const TOML = require('@iarna/toml');
 
 const MicrosoftTasksProvider = require('./providers/microsoft');
 const GoogleTasksProvider = require('./providers/google');
+const AppleBridgeProvider = require('./providers/apple-bridge');
+const bridgeServer = require('./bridge-server');
 const AuthService = require('./auth/authService');
 const UserService = require('./auth/userService');
 
@@ -161,35 +164,32 @@ userService.initialize().then(() => {
   console.error('Failed to initialize user service:', err);
 });
 
-// Provider factory - creates isolated instances per user
-const providerFactories = {
-  microsoft: (config) => new MicrosoftTasksProvider(config),
-  google: (config) => new GoogleTasksProvider(config)
-};
-
 // Helper to get provider for the authenticated user
 function getProviderForUser(req) {
-  const providerName = req.query.provider || req.body.provider || req.user.defaultProvider || 'microsoft';
-  const factory = providerFactories[providerName.toLowerCase()];
-
-  if (!factory) {
-    throw new Error(`Invalid provider: ${providerName}`);
-  }
+  const providerName = (req.query.provider || req.body.provider || req.user.defaultProvider || 'microsoft').toLowerCase();
 
   let provider;
-  if (providerName === 'microsoft') {
-    provider = factory({
-      clientId:     process.env.MICROSOFT_CLIENT_ID,
-      clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
-      tenantId:     process.env.MICROSOFT_TENANT_ID,
-      redirectUri:  process.env.MICROSOFT_REDIRECT_URI
-    });
-  } else if (providerName === 'google') {
-    provider = factory({
-      clientId:     process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      redirectUri:  process.env.GOOGLE_REDIRECT_URI
-    });
+  switch (providerName) {
+    case 'microsoft':
+      provider = new MicrosoftTasksProvider({
+        clientId:     process.env.MICROSOFT_CLIENT_ID,
+        clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
+        tenantId:     process.env.MICROSOFT_TENANT_ID,
+        redirectUri:  process.env.MICROSOFT_REDIRECT_URI
+      });
+      break;
+    case 'google':
+      provider = new GoogleTasksProvider({
+        clientId:     process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        redirectUri:  process.env.GOOGLE_REDIRECT_URI
+      });
+      break;
+    case 'apple':
+      provider = new AppleBridgeProvider(req.user.userId);
+      break;
+    default:
+      throw new Error(`Invalid provider: ${providerName}`);
   }
 
   return { provider, providerName };
@@ -197,6 +197,8 @@ function getProviderForUser(req) {
 
 // Initialize provider with user's credentials
 async function initializeProvider(provider, providerName, userId) {
+  if (providerName === 'apple') return; // no credentials needed; uses bridge
+
   const credentials = await userService.getCredentials(userId, providerName);
 
   if (!credentials) {
@@ -407,6 +409,7 @@ app.get('/auth/providers/status', authService.requireAuth(), async (req, res) =>
       status[p] = false;
     }
   }));
+  status.apple = bridgeServer.isConnected(req.user.userId);
   res.json(status);
 });
 
@@ -562,7 +565,7 @@ app.patch('/auth/default-provider', authService.requireAuth(), async (req, res) 
   try {
     const { provider } = req.body;
 
-    const validProviders = ['microsoft', 'google'];
+    const validProviders = ['microsoft', 'google', 'apple'];
     if (!validProviders.includes(provider)) {
       return res.status(400).json({ error: 'Invalid provider' });
     }
@@ -1018,6 +1021,46 @@ app.post('/billing/switch-to-monthly', authService.requireAuth(), async (req, re
 });
 
 // ============================================
+// Bridge Routes (Protected)
+// ============================================
+
+// Generate a new bridge API key (replaces any existing key)
+app.post('/auth/bridge/key', authService.requireAuth(), async (req, res) => {
+  try {
+    const key = await userService.generateBridgeApiKey(req.user.userId);
+    res.json({
+      apiKey: key,
+      message: 'Store this key in your hb-task-server .env as BRIDGE_API_KEY. It will not be shown again.'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Revoke the bridge API key and disconnect any active bridge session
+app.delete('/auth/bridge/key', authService.requireAuth(), async (req, res) => {
+  try {
+    const conn = bridgeServer.connections.get(req.user.userId);
+    if (conn) conn.ws.close(4004, 'API key revoked');
+    await userService.revokeBridgeApiKey(req.user.userId);
+    res.json({ success: true, message: 'Bridge API key revoked' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get bridge connection status and whether an API key exists
+app.get('/auth/bridge/status', authService.requireAuth(), async (req, res) => {
+  try {
+    const hasKey = await userService.hasBridgeApiKey(req.user.userId);
+    const connected = bridgeServer.isConnected(req.user.userId);
+    res.json({ hasKey, connected });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
 // Error handling
 // ============================================
 
@@ -1034,8 +1077,13 @@ app.use((err, req, res, next) => {
 // Start server
 // ============================================
 
-app.listen(API_PORT, () => {
+const httpServer = http.createServer(app);
+
+bridgeServer.attach(httpServer, (apiKey) => userService.getUserIdByBridgeApiKey(apiKey));
+
+httpServer.listen(API_PORT, () => {
   console.log(`Task API service running on http://localhost:${API_PORT}`);
   console.log(`Default provider: ${process.env.DEFAULT_PROVIDER || 'microsoft'}`);
   console.log(`CORS origin:      ${allowedOrigin}`);
+  console.log(`Bridge WebSocket: ws://localhost:${API_PORT}/bridge`);
 });

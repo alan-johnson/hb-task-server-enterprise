@@ -4,9 +4,9 @@ A multi-user REST API server that integrates with Apple Reminders, Microsoft Tas
 
 ## Features
 
-- **Apple Reminders** — Native macOS integration via AppleScript (opt-in, local deployments only)
-- **Microsoft Tasks** — Microsoft Graph API
-- **Google Tasks** — Google Tasks API
+- **Apple Reminders** — Via WebSocket bridge to a local [hb-task-server](https://github.com/handsbreadth/hb-task-server) instance; no inbound firewall changes required
+- **Microsoft Tasks** — Microsoft Graph API with per-user OAuth
+- **Google Tasks** — Google Tasks API with per-user OAuth
 - **Multi-user** — JWT authentication with complete per-user data isolation
 - **Web UI** — Built-in browser dashboard for managing lists, tasks (create, edit, complete, delete), and provider connections
 - **PostgreSQL** — Persistent storage with encrypted OAuth token storage (AES-256-GCM)
@@ -66,11 +66,8 @@ ENCRYPTION_KEY=<generated-hex-key>
 
 JWT_SECRET=<long-random-string>
 
-# Default task provider shown in the web UI (microsoft or google)
+# Default task provider shown in the web UI (microsoft, google, or apple)
 DEFAULT_PROVIDER=microsoft
-
-# Apple Reminders — only enable when running locally on macOS
-ENABLE_APPLE_PROVIDER=false
 
 # Optional: enable Redis for multi-instance deployments
 # REDIS_URL=redis://localhost:6379
@@ -167,18 +164,22 @@ Press `Ctrl+C` in the terminal running `npm start`.
 
 ### Provider setup
 
-#### Apple Reminders
+#### Apple Reminders (via bridge)
 
-Apple Reminders is **disabled by default**. Enable it only when running locally on macOS:
+Apple Reminders is accessed through a persistent WebSocket bridge to the user's local [hb-task-server](https://github.com/handsbreadth/hb-task-server). The local server runs on the user's Mac and initiates the outbound connection — no inbound ports or firewall changes are needed.
 
-```bash
-# .env
-ENABLE_APPLE_PROVIDER=true
-```
+**No server-side configuration is required.** Each user sets up their own bridge independently:
 
-The first time you run the server with Apple enabled, macOS may prompt you to grant Terminal access to Reminders. Click OK.
+1. The user calls `POST /auth/bridge/key` (authenticated) to generate a personal API key.
+2. They add the key and this server's WebSocket URL to their local `hb-task-server` `.env`:
+   ```
+   BRIDGE_URL=wss://your-upq-domain.com/bridge
+   BRIDGE_API_KEY=<key>
+   ```
+3. They restart `hb-task-server` — it connects automatically.
+4. The user sets their default provider to `apple` in UpQ settings.
 
-> Apple Reminders is not suitable for cloud/server deployments — it reads the Reminders database of the macOS user running the server process.
+See [PROVIDERS.md](PROVIDERS.md) for the full bridge protocol description.
 
 #### Microsoft Tasks
 
@@ -308,8 +309,11 @@ App launch
 | `GET` | `/auth/google/url` | Yes | Get Google OAuth URL |
 | `GET` | `/auth/google/callback` | — | Google OAuth callback |
 | `DELETE` | `/auth/provider/:provider` | Yes | Disconnect a provider |
-| `PATCH` | `/auth/default-provider` | Yes | Set default provider |
+| `PATCH` | `/auth/default-provider` | Yes | Set default provider (`microsoft`, `google`, or `apple`) |
 | `PATCH` | `/auth/preferences` | Yes | Update user preferences |
+| `POST` | `/auth/bridge/key` | Yes | Generate a bridge API key for hb-task-server |
+| `DELETE` | `/auth/bridge/key` | Yes | Revoke bridge API key and disconnect active session |
+| `GET` | `/auth/bridge/status` | Yes | Check bridge connection status (`{ hasKey, connected }`) |
 
 #### `PATCH /auth/preferences`
 
@@ -441,16 +445,17 @@ brew services start redis
 ```
 hb-task-server-enterprise/
 ├── src/
-│   ├── server.js               # Express server and all routes
+│   ├── server.js               # Express + HTTP server, all routes
+│   ├── bridge-server.js        # WebSocket server: authenticates and manages bridge connections
 │   ├── auth/
 │   │   ├── authService.js      # JWT generation and middleware
-│   │   └── userService.js      # User registration, auth, credential storage
+│   │   └── userService.js      # User registration, auth, credential and bridge key storage
 │   ├── db/
 │   │   ├── db.js               # pg connection pool + AES-256-GCM encryption helpers
 │   │   ├── cache.js            # ioredis wrapper (no-ops if REDIS_URL not set)
 │   │   └── schema.sql          # Database schema (applied automatically on startup)
 │   ├── providers/
-│   │   ├── apple.js            # Apple Reminders via AppleScript
+│   │   ├── apple-bridge.js     # Apple Reminders — routes calls through WebSocket bridge
 │   │   ├── microsoft.js        # Microsoft Graph API
 │   │   └── google.js           # Google Tasks API
 │   └── public/                 # Web UI (served as static files)
@@ -489,6 +494,14 @@ hb-task-server-enterprise/
 | `refresh_token` | TEXT | AES-256-GCM encrypted, nullable |
 | `updated_at` | TIMESTAMPTZ | |
 
+**`bridge_api_keys`** — One bridge API key per user for hb-task-server authentication
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `user_id` | TEXT | PK and FK → users, cascades on delete |
+| `key_hash` | TEXT | SHA-256 hash of the API key (raw key never stored) |
+| `created_at` | TIMESTAMPTZ | |
+
 ---
 
 ## Troubleshooting
@@ -499,11 +512,11 @@ Homebrew PostgreSQL uses your macOS username as the superuser. Set `DATABASE_URL
 **`ENCRYPTION_KEY must be a 64-character hex string`**
 Generate a valid key: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 
-**Apple Reminders: "Apple Reminders provider is not enabled on this server."**
-Add `ENABLE_APPLE_PROVIDER=true` to `.env` and restart the server. This is intentionally disabled by default.
+**Apple Reminders: "bridge is not connected"**
+The user's `hb-task-server` is not running or has not connected. Ensure it is running with `BRIDGE_URL` and `BRIDGE_API_KEY` set in its `.env`. Check `GET /auth/bridge/status` to confirm.
 
-**Apple Reminders: "Not authorized"**
-Go to System Settings > Privacy & Security > Automation and grant Terminal access to Reminders.
+**Apple Reminders: "Invalid API key" (bridge connection refused)**
+The key in `hb-task-server`'s `.env` does not match the stored key. Regenerate with `POST /auth/bridge/key` and update the local `.env`.
 
 **Microsoft: "Client not initialized"**
 The user has not connected Microsoft Tasks yet. Complete the OAuth flow via `GET /auth/microsoft/url`.

@@ -8,7 +8,7 @@ This document describes how UpQ task server integrates with each supported task 
 
 1. [Microsoft To Do (Microsoft Graph API)](#1-microsoft-to-do-microsoft-graph-api)
 2. [Google Tasks API](#2-google-tasks-api)
-3. [Apple Reminders (CalDAV — Not Currently Integrated)](#3-apple-reminders-caldav--not-currently-integrated)
+3. [Apple Reminders (WebSocket Bridge)](#3-apple-reminders-websocket-bridge)
 4. [Unified Provider Interface](#4-unified-provider-interface)
 5. [Adding a New Provider](#5-adding-a-new-provider)
 
@@ -194,150 +194,95 @@ googleapis   — Official Google API client library (includes OAuth2 and Tasks)
 
 ---
 
-## 3. Apple Reminders (CalDAV — Not Currently Integrated)
+## 3. Apple Reminders (WebSocket Bridge)
 
-Apple does not provide an official REST API for Reminders. The closest option is **CalDAV**, a standard internet protocol that iCloud exposes for calendar and reminder data.
+### Overview
 
-> **Note:** Apple Reminders is not integrated into this server because it lacks OAuth support, requires storing users' Apple credentials (a security liability), and is unreliable for multi-user SaaS deployments. This section documents the methodology for reference.
+Apple does not provide a cloud API for Reminders suitable for multi-user SaaS. The bridge approach solves this without storing Apple credentials on the server: a lightweight local server ([hb-task-server](https://github.com/handsbreadth/hb-task-server)) runs on the user's Mac, reads Reminders via AppleScript, and maintains a persistent outbound WebSocket connection to this server. Because the local server initiates the connection, it works behind NAT and home firewalls with no port forwarding required.
 
-### Protocol
+### Architecture
 
-- **CalDAV** (RFC 4791) — HTTP-based protocol built on WebDAV, using iCal format (`.ics`) for data
-- Reminders are stored as **VTODO** objects within CalDAV collections
-- iCloud CalDAV server: `https://caldav.icloud.com`
+```
+UpQ (cloud)                             hb-task-server (user's Mac)
+─────────────────────────────────────   ────────────────────────────────
+bridge-server.js  ←── WebSocket ───── src/bridge.js
+  connections map                          ↓
+  request(userId, method, params)       providers['apple']
+       ↓                                  ↓
+apple-bridge.js                        AppleRemindersProvider
+  (implements provider interface)         (AppleScript)
+```
 
 ### Authentication
 
-iCloud CalDAV requires:
-- **Apple ID** (email address)
-- **App-specific password** — generated at [appleid.apple.com](https://appleid.apple.com) → Sign-In and Security → App-Specific Passwords
+Each user has one bridge API key stored in the `bridge_api_keys` table as a SHA-256 hash (the raw key is never stored). The local server sends the key in the first WebSocket message; the cloud server looks up the hash and associates the connection with the matching user account.
 
-Regular Apple ID passwords **cannot** be used with CalDAV. Two-factor authentication (2FA) on the Apple account makes app-specific passwords mandatory.
+| Step | Who | Action |
+|------|-----|--------|
+| 1 | User (via UpQ API) | `POST /auth/bridge/key` → receives a one-time 64-char hex key |
+| 2 | User (on their Mac) | Adds `BRIDGE_URL` and `BRIDGE_API_KEY` to local `.env` |
+| 3 | hb-task-server | Connects to `wss://<upq>/bridge`, sends `{ type: "auth", apiKey }` |
+| 4 | bridge-server.js | Hashes the key, looks up `user_id`, registers the socket |
+| 5 | hb-task-server | Receives `{ type: "auth_ok" }`, ready to accept requests |
 
-There is **no OAuth flow** — credentials must be stored and sent with every request using HTTP Basic authentication.
+### Message Protocol
 
-### Node.js Implementation
+All messages are JSON. The cloud server acts as the requester; the local server executes and responds.
 
-The `tsdav` library provides a CalDAV client for Node.js:
-
-```bash
-npm install tsdav
+**Request** (cloud → local):
+```json
+{ "type": "request", "id": "<uuid>", "method": "getLists", "params": {} }
 ```
 
-```javascript
-const { DAVClient } = require('tsdav');
-
-const client = new DAVClient({
-  serverUrl: 'https://caldav.icloud.com',
-  credentials: {
-    username: 'user@icloud.com',
-    password: 'app-specific-password',
-  },
-  authMethod: 'Basic',
-  defaultAccountType: 'caldav',
-});
-
-await client.login();
-
-// Fetch all reminder lists (CalDAV calendars of type VTODO)
-const calendars = await client.fetchCalendars();
-const reminderLists = calendars.filter(c =>
-  c.components?.includes('VTODO')
-);
-
-// Fetch reminders from a list
-const objects = await client.fetchCalendarObjects({
-  calendar: reminderLists[0],
-});
-
-// Parse VTODO iCal data
-// Each object.data is a raw .ics string containing a VTODO component
+**Response** (local → cloud):
+```json
+{ "type": "response", "id": "<uuid>", "result": [ ... ] }
+{ "type": "response", "id": "<uuid>", "error": "error message" }
 ```
 
-### VTODO Data Format
-
-Each reminder is an iCal VTODO component:
-
-```
-BEGIN:VCALENDAR
-VERSION:2.0
-BEGIN:VTODO
-UID:abc123@icloud.com
-SUMMARY:Buy groceries
-DESCRIPTION:Milk, eggs, bread
-DUE;VALUE=DATE:20260315
-STATUS:NEEDS-ACTION
-CREATED:20260301T120000Z
-LAST-MODIFIED:20260301T120000Z
-END:VTODO
-END:VCALENDAR
+**Keepalive** (cloud → local, every 30 seconds):
+```json
+{ "type": "ping" }
+{ "type": "pong" }
 ```
 
-Parse with `ical.js`:
+### Supported Methods
 
-```bash
-npm install ical.js
-```
+| Method | Params | Description |
+|--------|--------|-------------|
+| `getLists` | — | Return all Reminders lists |
+| `getTasks` | `{ listId, options }` | Return tasks in a list |
+| `getTask` | `{ listId, taskId }` | Return a single task |
+| `createTask` | `{ listId, taskData }` | Create a new task |
+| `updateTask` | `{ listId, taskId, taskData }` | Update a task |
+| `completeTask` | `{ listId, taskId }` | Mark a task complete |
+| `deleteTask` | `{ listId, taskId }` | Delete a task |
+| `getListCounts` | `{ onlyIncomplete }` | Return task counts per list |
 
-```javascript
-const ICAL = require('ical.js');
+### Relevant Files
 
-function parseTodo(icsString) {
-  const parsed = ICAL.parse(icsString);
-  const comp   = new ICAL.Component(parsed);
-  const vtodo  = comp.getFirstSubcomponent('vtodo');
+| File | Role |
+|------|------|
+| `src/bridge-server.js` | WebSocket server singleton; manages connections, dispatches requests |
+| `src/providers/apple-bridge.js` | Provider class; implements the standard interface by forwarding to the bridge |
+| `src/db/schema.sql` | `bridge_api_keys` table definition |
+| `src/auth/userService.js` | `generateBridgeApiKey`, `getUserIdByBridgeApiKey`, `revokeBridgeApiKey`, `hasBridgeApiKey` |
 
-  return {
-    id:        vtodo.getFirstPropertyValue('uid'),
-    name:      vtodo.getFirstPropertyValue('summary'),
-    notes:     vtodo.getFirstPropertyValue('description'),
-    dueDate:   vtodo.getFirstPropertyValue('due')?.toString(),
-    completed: vtodo.getFirstPropertyValue('status') === 'COMPLETED',
-    updated:   vtodo.getFirstPropertyValue('last-modified')?.toString(),
-  };
-}
-```
+### Bridge API Routes
 
-### Creating and Updating Reminders
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/auth/bridge/key` | Generate (or replace) the user's bridge API key |
+| `DELETE` | `/auth/bridge/key` | Revoke the key and close any active connection |
+| `GET` | `/auth/bridge/status` | Returns `{ hasKey: bool, connected: bool }` |
 
-CalDAV uses HTTP `PUT` to create or update a VTODO object at a specific URL:
+### Security Notes
 
-```javascript
-await client.createCalendarObject({
-  calendar: reminderList,
-  filename:  `${uid}.ics`,
-  iCalString: `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VTODO\r\nUID:${uid}\r\nSUMMARY:${name}\r\nSTATUS:NEEDS-ACTION\r\nEND:VTODO\r\nEND:VCALENDAR`,
-});
-```
+- The raw API key is returned **once** at generation time and never stored. Only the SHA-256 hash is persisted.
+- Revoking a key (`DELETE /auth/bridge/key`) immediately closes the active WebSocket connection.
+- If a new key is generated while a bridge is connected, the old connection is closed before the new one is registered.
+- Requests time out after 15 seconds if the local server does not respond (e.g., Mac is asleep).
 
-Completion is a `PUT` with `STATUS:COMPLETED` and `COMPLETED:<datetime>` set.
-
-Deletion is an HTTP `DELETE` to the object's URL.
-
-### Limitations
-
-| Limitation | Detail |
-|---|---|
-| No OAuth | App-specific passwords only; users cannot use their normal Apple ID password |
-| Credential storage | Server must store each user's Apple credentials — a significant security liability |
-| No webhooks | Must poll CalDAV for changes; iCloud does not push notifications |
-| Rate limiting | Apple rate-limits CalDAV requests; aggressive polling may trigger blocks |
-| iCloud only | Reminders stored locally on-device (not synced to iCloud) are inaccessible |
-| API instability | iCloud CalDAV endpoints change without notice |
-| No priority field | VTODO `PRIORITY` property is not reliably set by Apple's clients |
-| Terms of Service | Third-party automation of iCloud is tolerated but not officially supported |
-
-### Why This Approach Is Not Used
-
-For a multi-user SaaS:
-- **Credential storage**: Each user's Apple ID + app-specific password would need to be stored encrypted on the server. If the server is compromised, all users' Apple accounts are at risk.
-- **No token revocation**: Unlike OAuth, there is no way for users to revoke access to just this app without changing their Apple ID password or deleting the app-specific password.
-- **No server-push**: CalDAV requires polling, adding latency and API call overhead.
-- **Reliability**: iCloud CalDAV is known to return inconsistent results and occasionally requires re-authentication.
-
-In contrast, Microsoft and Google both provide OAuth 2.0 flows with scoped, revocable tokens and webhook/push notification support.
-
----
 
 ## 4. Unified Provider Interface
 

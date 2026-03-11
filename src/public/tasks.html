@@ -118,8 +118,9 @@
     const listName  = params.get('listName') || 'Tasks';
 
     const PROVIDERS = {
-      microsoft: { label: 'Microsoft', icon: '🟦' },
-      google:    { label: 'Google',    icon: '🟥' }
+      microsoft: { label: 'Microsoft',       icon: '🟦' },
+      google:    { label: 'Google',          icon: '🟥' },
+      apple:     { label: 'Apple Reminders', icon: '🍎' }
     };
 
     document.getElementById('page-title').textContent = listName;
