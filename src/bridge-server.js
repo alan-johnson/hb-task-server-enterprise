@@ -53,7 +53,7 @@ class BridgeServer {
 
       const timer = setTimeout(() => {
         conn.pending.delete(id);
-        reject(new Error('Bridge request timed out after 15 seconds'));
+        reject(new Error('Bridge request timed out after 60 seconds'));
       }, REQUEST_TIMEOUT_MS);
 
       conn.pending.set(id, { resolve, reject, timer });
