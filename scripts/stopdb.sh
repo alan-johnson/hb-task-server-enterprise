@@ -1,25 +1,19 @@
 #!/usr/bin/env bash
-# Stop the task API server and web server then stop PostgreSQL and Redis.
+# Stop MySQL and Redis.
 
-PG_BIN="/opt/homebrew/opt/postgresql@18/bin"
-PG_DATA="/opt/homebrew/var/postgresql@18"
 REDIS_CLI="$(command -v redis-cli 2>/dev/null || echo /opt/homebrew/opt/redis/bin/redis-cli)"
-PG_CTL="$(command -v pg_ctl 2>/dev/null || echo "$PG_BIN/pg_ctl")"
 
-# ── PostgreSQL ──────────────────────────────────────────────────────────────
+# ── MySQL ────────────────────────────────────────────────────────────────────
 
-if "$PG_BIN/pg_isready" -q 2>/dev/null; then
-  echo "Stopping PostgreSQL..."
-  if "$PG_CTL" stop -D "$PG_DATA" -m fast -w; then
-    echo "  PostgreSQL stopped."
-  else
-    echo "  ERROR: pg_ctl stop failed." >&2
-  fi
+if brew services list 2>/dev/null | grep -q "^mysql.*started"; then
+  echo "Stopping MySQL..."
+  brew services stop mysql
+  echo "  MySQL stopped."
 else
-  echo "PostgreSQL is not running."
+  echo "MySQL is not running."
 fi
 
-# ── Redis ───────────────────────────────────────────────────────────────────
+# ── Redis ────────────────────────────────────────────────────────────────────
 
 if "$REDIS_CLI" ping 2>/dev/null | grep -q PONG; then
   echo "Stopping Redis..."
