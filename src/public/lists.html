@@ -58,8 +58,9 @@
     if (!token) { window.location.href = '/'; }
 
     const PROVIDERS = {
-      microsoft: { label: 'Microsoft', icon: '🟦', color: '#1565c0', bg: '#e3f2fd' },
-      google:    { label: 'Google',    icon: '🟥', color: '#b71c1c', bg: '#ffebee' }
+      microsoft: { label: 'Microsoft',       icon: '🟦', color: '#1565c0', bg: '#e3f2fd' },
+      google:    { label: 'Google',          icon: '🟥', color: '#b71c1c', bg: '#ffebee' },
+      apple:     { label: 'Apple Reminders', icon: '🍎', color: '#1d1d1f', bg: '#f5f5f7' }
     };
 
     let allLists = [];         // [{ provider, id, name, updated, taskCount }]

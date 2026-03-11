@@ -65,6 +65,16 @@
         </div>
       </div>
 
+      <!-- Apple Reminders (bridge) -->
+      <div class="provider-card" id="card-apple">
+        <div class="provider-icon">🍎</div>
+        <div class="provider-info">
+          <div class="provider-name">Apple Reminders</div>
+          <div class="provider-desc">Local Mac via hb-task-server bridge</div>
+        </div>
+        <div class="provider-actions" id="actions-apple"></div>
+      </div>
+
     </div>
 
     <div class="section-title" style="margin-top:2rem">Preferences</div>
@@ -217,6 +227,22 @@
     </div>
   </div>
 
+  <!-- ── Apple bridge key modal ── -->
+  <div id="apple-key-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeAppleKeyModal()">
+    <div class="modal-box">
+      <h2>Apple Reminders Bridge Key</h2>
+      <p style="color:#555;margin:.25rem 0 1rem">Copy this key — it will not be shown again. Add both lines to your <code>hb-task-server</code> <code>.env</code> file, then restart the server.</p>
+      <div style="background:#f8f8f8;border:1px solid #e0e0e0;border-radius:6px;padding:1rem;font-family:monospace;font-size:.85rem;line-height:1.8;word-break:break-all">
+        <div>BRIDGE_URL=wss://your-upq-domain.com/bridge</div>
+        <div>BRIDGE_API_KEY=<span id="apple-key-display" style="color:#1a73e8"></span></div>
+      </div>
+      <p style="font-size:.85rem;color:#888;margin:.75rem 0 0">Once <code>hb-task-server</code> is running with this key, refresh this page and Apple Reminders will show as Connected.</p>
+      <div class="modal-actions" style="margin-top:1.25rem">
+        <button class="btn btn-primary" onclick="closeAppleKeyModal()">Done</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const token = localStorage.getItem('token');
     if (!token) { window.location.href = '/'; }
@@ -309,6 +335,58 @@
       }
     }
 
+    // ── Apple Reminders bridge ──────────────────────────────────────────────
+
+    function renderAppleStatus(connected, hasKey) {
+      const el = document.getElementById('actions-apple');
+      if (connected) {
+        el.innerHTML = `
+          <span class="badge badge-connected">Connected ✓</span>
+          <button class="btn btn-secondary btn-sm" onclick="setDefault('apple')">Set as Default</button>
+          <button class="btn btn-danger btn-sm" onclick="revokeAppleKey()">Revoke Key</button>
+        `;
+      } else if (hasKey) {
+        el.innerHTML = `
+          <span style="font-size:.85rem;color:#888">Key active — start hb-task-server to connect</span>
+          <button class="btn btn-secondary btn-sm" onclick="setDefault('apple')">Set as Default</button>
+          <button class="btn btn-danger btn-sm" onclick="revokeAppleKey()">Revoke Key</button>
+        `;
+      } else {
+        el.innerHTML = `
+          <button class="btn btn-primary btn-sm" onclick="generateAppleKey()">Generate Key</button>
+        `;
+      }
+    }
+
+    async function generateAppleKey() {
+      try {
+        const res = await fetch('/auth/bridge/key', { method: 'POST', headers: authHeaders() });
+        const data = await res.json();
+        if (!res.ok) { showBanner(data.error || 'Failed to generate key', 'error'); return; }
+        document.getElementById('apple-key-display').textContent = data.apiKey;
+        document.getElementById('apple-key-modal').style.display = 'flex';
+        renderAppleStatus(false, true);
+      } catch {
+        showBanner('Could not reach the server.', 'error');
+      }
+    }
+
+    async function revokeAppleKey() {
+      if (!confirm('Revoke Apple Reminders key? The local hb-task-server will disconnect immediately.')) return;
+      try {
+        const res = await fetch('/auth/bridge/key', { method: 'DELETE', headers: authHeaders() });
+        if (!res.ok) { const d = await res.json(); showBanner(d.error || 'Failed to revoke key', 'error'); return; }
+        showBanner('Apple Reminders bridge key revoked.');
+        renderAppleStatus(false, false);
+      } catch {
+        showBanner('Could not reach the server.', 'error');
+      }
+    }
+
+    function closeAppleKeyModal() {
+      document.getElementById('apple-key-modal').style.display = 'none';
+    }
+
     async function loadUserInfo() {
       try {
         const res = await fetch('/auth/me', { headers: authHeaders() });
@@ -325,7 +403,7 @@
     async function init() {
       await loadUserInfo();
 
-      // Load provider status
+      // Load OAuth provider status
       try {
         const res = await fetch('/auth/providers/status', { headers: authHeaders() });
         const status = await res.json();
@@ -334,6 +412,15 @@
       } catch {
         renderProviderStatus('microsoft', false);
         renderProviderStatus('google', false);
+      }
+
+      // Load Apple bridge status
+      try {
+        const res = await fetch('/auth/bridge/status', { headers: authHeaders() });
+        const s = await res.json();
+        renderAppleStatus(s.connected, s.hasKey);
+      } catch {
+        renderAppleStatus(false, false);
       }
 
       // Show banners based on query params

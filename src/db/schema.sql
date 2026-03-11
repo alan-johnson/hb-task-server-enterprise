@@ -36,3 +36,10 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token_expires TIMESTAMPT
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token         TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token_expires TIMESTAMPTZ;
+
+-- Bridge API keys: one key per user, stored as SHA-256 hash
+CREATE TABLE IF NOT EXISTS bridge_api_keys (
+    user_id    TEXT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+    key_hash   TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
