@@ -10,7 +10,7 @@ manual nginx/PM2 configuration that is not available on shared hosting.
 
 1. [Prerequisites](#1-prerequisites)
 2. [Resolve the bcrypt Dependency](#2-resolve-the-bcrypt-dependency)
-3. [Create the PostgreSQL Database](#3-create-the-postgresql-database)
+3. [Create the MySQL Database](#3-create-the-mysql-database)
 4. [Upload the Application Files](#4-upload-the-application-files)
 5. [Configure the Node.js App in cPanel](#5-configure-the-nodejs-app-in-cpanel)
 6. [Set Environment Variables](#6-set-environment-variables)
@@ -29,12 +29,12 @@ manual nginx/PM2 configuration that is not available on shared hosting.
 Before starting, confirm your Namecheap plan includes:
 
 - **Node.js support** — available on Stellar Plus and higher shared hosting plans
-- **PostgreSQL support** — available on the same plans; confirm in cPanel under
-  "PostgreSQL Databases"
+- **MySQL support** — available on all shared hosting plans; confirm in cPanel under
+  "MySQL Databases"
 - A **domain name** pointed at your Namecheap hosting account (required for OAuth
   redirect URIs)
 
-You do not need Redis. Without it, the server reads directly from PostgreSQL, which is
+You do not need Redis. Without it, the server reads directly from MySQL, which is
 the correct configuration for a single-instance shared hosting deployment. Leave
 `REDIS_URL` unset.
 
@@ -82,21 +82,21 @@ files are uploaded.
 
 ---
 
-## 3. Create the PostgreSQL Database
+## 3. Create the MySQL Database
 
 1. Log in to cPanel at `https://your-domain.com/cpanel` (or via Namecheap dashboard >
    cPanel).
-2. Go to **Databases** > **PostgreSQL Databases**.
+2. Go to **Databases** > **MySQL Databases**.
 3. Under **Create New Database**, enter a name (e.g., `taskserver`). cPanel will prefix
    it with your cPanel username automatically, producing something like
    `cpanelusername_taskserver`.
-4. Under **PostgreSQL Users** > **Add New User**, create a user (e.g., `taskapp`) with a
+4. Under **MySQL Users** > **Add New User**, create a user (e.g., `taskapp`) with a
    strong password. Note the full prefixed username (e.g., `cpanelusername_taskapp`).
 5. Under **Add User to Database**, select the new user and new database, then click **Add**.
    Grant **ALL PRIVILEGES**.
 6. Note your full connection string — you will need it in Section 6:
    ```
-   postgres://cpanelusername_taskapp:yourpassword@localhost:5432/cpanelusername_taskserver
+   mysql://cpanelusername_taskapp:yourpassword@localhost:3306/cpanelusername_taskserver
    ```
 
 The application creates its own schema tables on first boot. No manual SQL setup is needed.
@@ -161,7 +161,7 @@ setting variables here keeps secrets out of the filesystem.
 | Variable | Value |
 |---|---|
 | `JWT_SECRET` | A 128-character random hex string (see generation command below) |
-| `DATABASE_URL` | The full connection string from Section 3 |
+| `DATABASE_URL` | `mysql://cpanelusername_taskapp:PASS@localhost:3306/cpanelusername_taskserver` |
 | `ENCRYPTION_KEY` | A 64-character random hex string (see generation command below) |
 | `MICROSOFT_CLIENT_ID` | Your Azure App Registration client ID |
 | `MICROSOFT_CLIENT_SECRET` | Your Azure App Registration client secret |
@@ -173,7 +173,7 @@ setting variables here keeps secrets out of the filesystem.
 | `DEFAULT_PROVIDER` | `microsoft` or `google` |
 | `WEB_URL` | `https://your-domain.com` |
 
-**Do not set** `REDIS_URL` — Redis is not available on shared hosting.
+**Do not set** `REDIS_URL` — Redis is not available on shared hosting. Without it, all reads go directly to MySQL, which is correct for this deployment.
 **Do not set** `ENABLE_APPLE_PROVIDER` — Apple Reminders requires macOS.
 
 ### Generating secret values
@@ -198,8 +198,8 @@ Copy the output directly into the cPanel environment variable fields.
 2. Click **Run NPM Install**. cPanel will run `npm install --omit=dev` in your application
    root.
 3. Watch for errors. If the install succeeds, you will see a success message. If it fails,
-   the most likely cause is the `bcrypt` native module — confirm you completed Section 2
-   before proceeding.
+   the most likely cause is the `bcrypt` native module — confirm you completed Section 2.
+   The `mysql2` package is pure JavaScript and installs without build tools.
 4. After a successful install, click **Restart** to start the application.
 
 ---
@@ -315,10 +315,10 @@ Node.js startup errors written to the Apache error log.
 For more detailed logging, consider adding file-based logging to the application (e.g.,
 writing to a log file in your application directory) and viewing those files via File Manager.
 
-### PostgreSQL backups
+### MySQL backups
 
 cPanel > **Backup** or **Backup Wizard** can produce a full account backup that includes
-PostgreSQL databases. For scheduled automated backups, Namecheap's **JetBackup** (if
+MySQL databases. For scheduled automated backups, Namecheap's **JetBackup** (if
 included on your plan) can back up databases on a daily schedule. Verify this is enabled
 under cPanel > **JetBackup**.
 
@@ -332,7 +332,7 @@ shared hosting environment.
 
 | # | Limitation | Impact | Notes |
 |---|---|---|---|
-| 1 | No Redis available | Low — single instance only | Correct for shared hosting; do not set `REDIS_URL` |
+| 1 | No Redis available | Low — single instance only | Correct for shared hosting; do not set `REDIS_URL`. All reads go to MySQL. |
 | 2 | No OAuth token refresh | High — users get errors after ~1 hour | Requires code change: catch 401, call refresh endpoint, store new token, retry |
 | 3 | No rate limiting | High — brute-force risk on `/auth/login` | Requires code change: add `express-rate-limit` |
 | 4 | No application log access | Medium — debugging is harder | Work around with file-based logging or cPanel error log |

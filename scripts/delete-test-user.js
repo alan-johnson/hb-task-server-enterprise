@@ -14,40 +14,41 @@
 
 require('dotenv').config();
 
-const { Pool }  = require('pg');
-const Redis     = require('ioredis');
+const mysql = require('mysql2/promise');
+const Redis = require('ioredis');
 
 const TEST_EMAIL = 'johnsonalan006@gmail.com';
 
 async function main() {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pool = mysql.createPool(process.env.DATABASE_URL);
 
   // --- Find matching accounts ---
-  const found = await pool.query(
-    'SELECT user_id, username, email, email_verified, created_at FROM users WHERE email = $1',
+  const [found] = await pool.execute(
+    'SELECT user_id, username, email, email_verified, created_at FROM users WHERE email = ?',
     [TEST_EMAIL]
   );
 
-  if (found.rows.length === 0) {
+  if (found.length === 0) {
     console.log(`No accounts found with email ${TEST_EMAIL}.`);
     await pool.end();
     return;
   }
 
-  console.log(`Found ${found.rows.length} account(s) to delete:`);
-  for (const row of found.rows) {
-    console.log(`  • user_id=${row.user_id}  username=${row.username}  verified=${row.email_verified}  created=${row.created_at}`);
+  console.log(`Found ${found.length} account(s) to delete:`);
+  for (const row of found) {
+    console.log(`  • user_id=${row.user_id}  username=${row.username}  verified=${!!row.email_verified}  created=${row.created_at}`);
   }
 
-  const userIds  = found.rows.map(r => r.user_id);
-  const usernames = found.rows.map(r => r.username);
+  const userIds   = found.map(r => r.user_id);
+  const usernames = found.map(r => r.username);
 
-  // --- Delete from Postgres (credentials cascade automatically) ---
-  const del = await pool.query(
-    'DELETE FROM users WHERE user_id = ANY($1::text[])',
-    [userIds]
+  // --- Delete from MySQL (credentials cascade automatically) ---
+  const placeholders = userIds.map(() => '?').join(', ');
+  const [delResult] = await pool.execute(
+    `DELETE FROM users WHERE user_id IN (${placeholders})`,
+    userIds
   );
-  console.log(`\nDeleted ${del.rowCount} user record(s) from PostgreSQL (credentials cascade).`);
+  console.log(`\nDeleted ${delResult.affectedRows} user record(s) from MySQL (credentials cascade).`);
 
   await pool.end();
 
@@ -72,7 +73,6 @@ async function main() {
 
     try {
       const redis = new Redis(process.env.REDIS_URL);
-      // Wait for connection before issuing commands
       await new Promise((resolve, reject) => {
         redis.once('ready', resolve);
         redis.once('error', reject);

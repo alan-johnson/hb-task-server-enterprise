@@ -1,18 +1,31 @@
-const { Pool } = require('pg');
+const mysql = require('mysql2/promise');
 const crypto = require('crypto');
 
 // --- Connection Pool ---
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
+const mysqlPool = mysql.createPool({
+  uri: process.env.DATABASE_URL,
+  waitForConnections: true,
+  connectionLimit: 10,
+  connectTimeout: 5000,
 });
 
-pool.on('error', (err) => {
-  console.error('Unexpected PostgreSQL pool error:', err.message);
-});
+// Thin wrapper that mimics the pg Pool API used throughout the app:
+//   pool.query(sql, params) → { rows, rowCount }
+// SELECT queries:  rows = array of row objects, rowCount = rows.length
+// DML queries:     rows = [],                   rowCount = affectedRows
+const pool = {
+  async query(sql, params = []) {
+    const [result] = await mysqlPool.execute(sql, params);
+    if (Array.isArray(result)) {
+      return { rows: result, rowCount: result.length };
+    }
+    return { rows: [], rowCount: result.affectedRows };
+  },
+  async end() {
+    return mysqlPool.end();
+  },
+};
 
 // --- Token Encryption (AES-256-GCM) ---
 // ENCRYPTION_KEY must be a 64-character hex string (32 bytes).

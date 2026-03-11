@@ -137,7 +137,7 @@ app.post('/billing/webhook', express.raw({ type: 'application/json' }), async (r
       const subscription = event.data.object;
       const { pool } = require('./db/db');
       const result = await pool.query(
-        'SELECT user_id FROM users WHERE stripe_customer_id = $1',
+        'SELECT user_id FROM users WHERE stripe_customer_id = ?',
         [subscription.customer]
       );
       if (result.rows[0]) {

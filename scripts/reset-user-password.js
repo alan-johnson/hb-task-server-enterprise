@@ -12,8 +12,8 @@
 
 require('dotenv').config();
 
-const { Pool } = require('pg');
-const bcrypt   = require('bcrypt');
+const mysql  = require('mysql2/promise');
+const bcrypt = require('bcrypt');
 
 async function main() {
   const [username, newPassword] = process.argv.slice(2);
@@ -23,14 +23,14 @@ async function main() {
     process.exit(1);
   }
 
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pool = mysql.createPool(process.env.DATABASE_URL);
 
-  const { rowCount } = await pool.query(
-    'SELECT 1 FROM users WHERE username = $1',
+  const [rows] = await pool.execute(
+    'SELECT 1 FROM users WHERE username = ?',
     [username]
   );
 
-  if (rowCount === 0) {
+  if (rows.length === 0) {
     console.error(`User '${username}' not found.`);
     await pool.end();
     process.exit(1);
@@ -38,8 +38,8 @@ async function main() {
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
 
-  await pool.query(
-    'UPDATE users SET password_hash = $1 WHERE username = $2',
+  await pool.execute(
+    'UPDATE users SET password_hash = ? WHERE username = ?',
     [passwordHash, username]
   );
 

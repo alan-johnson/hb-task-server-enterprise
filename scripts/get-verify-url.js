@@ -19,30 +19,30 @@
 
 require('dotenv').config();
 
-const { Pool } = require('pg');
+const mysql = require('mysql2/promise');
 
 const TEST_EMAIL = 'johnsonalan006@gmail.com';
 const arg        = process.argv[2] || TEST_EMAIL;
 const baseUrl    = (process.env.WEB_URL || 'http://localhost').replace(/\/$/, '');
 
 async function main() {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pool = mysql.createPool(process.env.DATABASE_URL);
 
   // Match by username OR email
-  const result = await pool.query(
+  const [rows] = await pool.execute(
     `SELECT username, email, email_verified, verification_token, verification_token_expires
      FROM users
-     WHERE username = $1 OR email = $1`,
-    [arg]
+     WHERE username = ? OR email = ?`,
+    [arg, arg]
   );
   await pool.end();
 
-  if (result.rows.length === 0) {
+  if (rows.length === 0) {
     console.error(`No account found matching "${arg}".`);
     process.exit(1);
   }
 
-  const row = result.rows[0];
+  const row = rows[0];
 
   if (row.email_verified) {
     console.log(`Account "${row.username}" (${row.email}) is already verified. Nothing to do.`);

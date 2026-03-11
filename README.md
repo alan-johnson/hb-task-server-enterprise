@@ -9,14 +9,14 @@ A multi-user REST API server that integrates with Apple Reminders, Microsoft Tas
 - **Google Tasks** — Google Tasks API with per-user OAuth
 - **Multi-user** — JWT authentication with complete per-user data isolation
 - **Web UI** — Built-in browser dashboard for managing lists, tasks (create, edit, complete, delete), and provider connections
-- **PostgreSQL** — Persistent storage with encrypted OAuth token storage (AES-256-GCM)
-- **Redis** — Optional shared cache for multi-instance deployments (falls back to Postgres if not configured)
+- **MySQL** — Persistent storage with encrypted OAuth token storage (AES-256-GCM)
+- **Redis** — Optional shared cache for multi-instance deployments (falls back to MySQL if not configured)
 - **In-memory cache** — Per-server TTL cache (provider status: 5 min, lists: 2 min, task counts: 2 min, tasks: 30 sec)
 
 ## Prerequisites
 
 - Node.js v14 or later
-- PostgreSQL 18 (macOS: `brew install postgresql@18`)
+- MySQL 8+ (macOS: `brew install mysql`)
 - Redis (optional — macOS: `brew install redis`) — required only for multi-instance deployments
 - macOS (required for Apple Reminders integration)
 - Microsoft Azure account (for Microsoft Tasks)
@@ -34,19 +34,24 @@ npm install
 
 ### 2. Create the database
 
-Start PostgreSQL (macOS/Homebrew):
+Start MySQL (macOS/Homebrew):
 
 ```bash
-./startdb.sh
+brew services start mysql
 ```
 
-Create the application database (run once):
+Create the application database and user (run once):
 
 ```bash
-/opt/homebrew/opt/postgresql@18/bin/createdb hb_task_server
+mysql -u root -p <<'SQL'
+CREATE DATABASE IF NOT EXISTS hb_task_server CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'hbtasks'@'localhost' IDENTIFIED BY 'choose-a-strong-password';
+GRANT ALL PRIVILEGES ON hb_task_server.* TO 'hbtasks'@'localhost';
+FLUSH PRIVILEGES;
+SQL
 ```
 
-> **Note:** On macOS with Homebrew, the default PostgreSQL superuser is your OS username — there is no `postgres` role by default.
+The application applies the schema automatically on first boot — no manual migration step is needed.
 
 ### 3. Configure environment variables
 
@@ -57,8 +62,7 @@ cp .env.example .env
 Edit `.env` and set the required values:
 
 ```bash
-# Replace <your-os-username> with the output of: whoami
-DATABASE_URL=postgres://<your-os-username>@localhost:5432/hb_task_server
+DATABASE_URL=mysql://hbtasks:choose-a-strong-password@localhost:3306/hb_task_server
 
 # Generate a 64-character hex key:
 # node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -83,7 +87,7 @@ On first boot the server applies the database schema automatically. You should s
 
 ```
 User service initialized
-UserService: connected to PostgreSQL
+UserService: connected to MySQL
 🚀 Multi-User Task Server running on http://localhost:3500
 ```
 
@@ -148,8 +152,8 @@ curl -s http://localhost:3500/auth/me \
 ### Confirm data in the database
 
 ```bash
-/opt/homebrew/opt/postgresql@18/bin/psql hb_task_server \
-  -c "SELECT user_id, username, default_provider, created_at FROM users;"
+mysql -u hbtasks -p hb_task_server \
+  -e "SELECT user_id, username, default_provider, created_at FROM users;"
 ```
 
 ### Stop the server
@@ -383,29 +387,29 @@ The server supports two deployment modes controlled entirely by the presence of 
 ### Single-instance (no Redis)
 
 ```
-Client → Express → UserService → PostgreSQL
+Client → Express → UserService → MySQL
 ```
 
-All reads go directly to PostgreSQL. Suitable for a single server process. No additional infrastructure required beyond Postgres.
+All reads go directly to MySQL. Suitable for a single server process. No additional infrastructure required beyond MySQL.
 
 ```bash
 # .env — omit REDIS_URL or leave it commented out
-DATABASE_URL=postgres://<user>@localhost:5432/hb_task_server
+DATABASE_URL=mysql://<user>:<password>@localhost:3306/hb_task_server
 ```
 
 ### Multi-instance (with Redis)
 
 ```
 Client → [Instance 1]  ↘
-                         Redis ← → PostgreSQL
+                         Redis ← → MySQL
 Client → [Instance 2]  ↗
 ```
 
-Redis acts as a shared read cache across all instances. Each read checks Redis first; on a cache miss the data is fetched from Postgres and stored in Redis for subsequent reads. All writes go to both Postgres (durable) and Redis (cache update/invalidation).
+Redis acts as a shared read cache across all instances. Each read checks Redis first; on a cache miss the data is fetched from MySQL and stored in Redis for subsequent reads. All writes go to both MySQL (durable) and Redis (cache update/invalidation).
 
 ```bash
 # .env — add REDIS_URL
-DATABASE_URL=postgres://<user>@localhost:5432/hb_task_server
+DATABASE_URL=mysql://<user>:<password>@localhost:3306/hb_task_server
 REDIS_URL=redis://localhost:6379
 ```
 
@@ -420,13 +424,13 @@ brew services start redis
 
 | Operation | Without Redis | With Redis |
 |-----------|--------------|------------|
-| `getUser` | Postgres query | Redis hit (or Postgres + cache populate on miss) |
-| `getCredentials` | Postgres query | Redis hit (or Postgres + cache populate on miss) |
-| `authenticate` | Postgres query | Redis hit (or Postgres + cache populate on miss) |
-| `register` | Postgres insert | Postgres insert + Redis set |
-| `storeCredentials` | Postgres upsert | Postgres upsert + Redis set |
-| `removeCredentials` | Postgres delete | Postgres delete + Redis delete |
-| `updateDefaultProvider` | Postgres update | Postgres update + Redis invalidate |
+| `getUser` | MySQL query | Redis hit (or MySQL + cache populate on miss) |
+| `getCredentials` | MySQL query | Redis hit (or MySQL + cache populate on miss) |
+| `authenticate` | MySQL query | Redis hit (or MySQL + cache populate on miss) |
+| `register` | MySQL insert | MySQL insert + Redis set |
+| `storeCredentials` | MySQL upsert | MySQL upsert + Redis set |
+| `removeCredentials` | MySQL delete | MySQL delete + Redis delete |
+| `updateDefaultProvider` | MySQL update | MySQL update + Redis invalidate |
 
 **Redis key schema:**
 
@@ -436,7 +440,7 @@ brew services start redis
 | `user:name:{username}` | JSON user object |
 | `creds:{userId}:{provider}` | JSON credentials (tokens stored decrypted in Redis) |
 
-> OAuth tokens are encrypted (AES-256-GCM) at rest in PostgreSQL. They are stored decrypted in Redis — ensure Redis is secured appropriately in production (auth, TLS, private network).
+> OAuth tokens are encrypted (AES-256-GCM) at rest in MySQL. They are stored decrypted in Redis — ensure Redis is secured appropriately in production (auth, TLS, private network).
 
 ---
 
@@ -451,7 +455,7 @@ hb-task-server-enterprise/
 │   │   ├── authService.js      # JWT generation and middleware
 │   │   └── userService.js      # User registration, auth, credential and bridge key storage
 │   ├── db/
-│   │   ├── db.js               # pg connection pool + AES-256-GCM encryption helpers
+│   │   ├── db.js               # mysql2 connection pool + AES-256-GCM encryption helpers
 │   │   ├── cache.js            # ioredis wrapper (no-ops if REDIS_URL not set)
 │   │   └── schema.sql          # Database schema (applied automatically on startup)
 │   ├── providers/
@@ -480,34 +484,34 @@ hb-task-server-enterprise/
 | `username` | TEXT | Unique |
 | `email` | TEXT | Nullable |
 | `password_hash` | TEXT | bcrypt, 10 rounds |
-| `created_at` | TIMESTAMPTZ | |
-| `default_provider` | TEXT | `apple`, `microsoft`, or `google` |
+| `created_at` | DATETIME(3) | |
+| `default_provider` | VARCHAR(50) | `apple`, `microsoft`, or `google` |
 | `show_completed` | BOOLEAN | Default `false` — include completed tasks in counts |
 
 **`user_credentials`** — OAuth tokens per user per provider
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `user_id` | TEXT | FK → users, cascades on delete |
-| `provider` | TEXT | Composite PK with user_id |
+| `user_id` | VARCHAR(255) | FK → users, cascades on delete |
+| `provider` | VARCHAR(50) | Composite PK with user_id |
 | `access_token` | TEXT | AES-256-GCM encrypted |
 | `refresh_token` | TEXT | AES-256-GCM encrypted, nullable |
-| `updated_at` | TIMESTAMPTZ | |
+| `updated_at` | DATETIME(3) | |
 
 **`bridge_api_keys`** — One bridge API key per user for hb-task-server authentication
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `user_id` | TEXT | PK and FK → users, cascades on delete |
-| `key_hash` | TEXT | SHA-256 hash of the API key (raw key never stored) |
-| `created_at` | TIMESTAMPTZ | |
+| `user_id` | VARCHAR(255) | PK and FK → users, cascades on delete |
+| `key_hash` | VARCHAR(255) | SHA-256 hash of the API key (raw key never stored) |
+| `created_at` | DATETIME(3) | |
 
 ---
 
 ## Troubleshooting
 
-**`role "postgres" does not exist`**
-Homebrew PostgreSQL uses your macOS username as the superuser. Set `DATABASE_URL` to `postgres://<your-os-username>@localhost:5432/hb_task_server`.
+**`Access denied for user`** (MySQL)
+Verify the credentials in `DATABASE_URL` match the MySQL user you created. Confirm the user has `ALL PRIVILEGES` on the database: `SHOW GRANTS FOR 'hbtasks'@'localhost';`
 
 **`ENCRYPTION_KEY must be a 64-character hex string`**
 Generate a valid key: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
@@ -532,8 +536,8 @@ The OAuth authorization code expired. Repeat the flow from `GET /auth/google/url
 **Redis: `connect ECONNREFUSED 127.0.0.1:6379`**
 Redis is configured but not running. Either start it (`redis-server`) or remove `REDIS_URL` from `.env` to run without it.
 
-**Redis: stale data after manual Postgres edits**
-If you modify the `users` or `user_credentials` tables directly (e.g. via `psql`), flush the Redis cache: `redis-cli FLUSHDB`. The cache will repopulate from Postgres on next access.
+**Redis: stale data after manual MySQL edits**
+If you modify the `users` or `user_credentials` tables directly (e.g. via `mysql` CLI), flush the Redis cache: `redis-cli FLUSHDB`. The cache will repopulate from MySQL on next access.
 
 ---
 
