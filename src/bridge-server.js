@@ -8,7 +8,7 @@ const WebSocket = require('ws');
 const crypto = require('crypto');
 
 const AUTH_TIMEOUT_MS = 10_000;
-const REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 60_000;
 const PING_INTERVAL_MS = 30_000;
 
 class BridgeServer {

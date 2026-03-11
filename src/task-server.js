@@ -664,6 +664,7 @@ app.get('/api/tasks/unified', authService.requireAuth(), async (req, res) => {
     const creds = await userService.getCredentials(userId, p);
     if (creds) providerNames.push(p);
   }
+  if (bridgeServer.isConnected(userId)) providerNames.push('apple');
 
   const allTasks = [];
 
