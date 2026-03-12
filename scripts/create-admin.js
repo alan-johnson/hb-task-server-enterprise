@@ -18,7 +18,7 @@
 require('dotenv').config();
 
 const mysql  = require('mysql2/promise');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 
 const ADMIN_USERNAME = 'admin';
 const ADMIN_PASSWORD = 'hb-aDmin-67-forewer$';
