@@ -1055,6 +1055,7 @@ app.get('/auth/bridge/status', authService.requireAuth(), async (req, res) => {
   try {
     const hasKey = await userService.hasBridgeApiKey(req.user.userId);
     const connected = bridgeServer.isConnected(req.user.userId);
+    res.setHeader('Cache-Control', 'no-store');
     res.json({ hasKey, connected });
   } catch (error) {
     res.status(500).json({ error: error.message });
