@@ -97,6 +97,8 @@ files are uploaded.
 6. Note your full connection string — you will need it in Section 6:
    ```
    mysql://cpanelusername_taskapp:yourpassword@localhost:3306/cpanelusername_taskserver
+   
+   mysql://handfrgi_taskapp:bifpoq-rYdbij-1wuwze@localhost:3306/handfrgi_upq-taskserver
    ```
 
 The application creates its own schema tables on first boot. No manual SQL setup is needed.

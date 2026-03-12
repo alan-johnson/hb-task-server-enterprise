@@ -1062,11 +1062,26 @@ app.get('/auth/bridge/status', authService.requireAuth(), async (req, res) => {
 });
 
 // ============================================
+// Static file serving (used when this server is the sole entry point,
+// e.g. on Namecheap shared hosting where only one Node.js app is allowed)
+// ============================================
+
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Legal pages (clean URLs for OAuth app registration)
+app.get('/privacy', (req, res) => res.sendFile(path.join(__dirname, 'public', 'privacy.html')));
+app.get('/terms',   (req, res) => res.sendFile(path.join(__dirname, 'public', 'terms.html')));
+
+// ============================================
 // Error handling
 // ============================================
 
 app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
+  // Return JSON for /api and /auth routes; plain 404 for everything else
+  if (req.path.startsWith('/api') || req.path.startsWith('/auth') || req.path.startsWith('/billing')) {
+    return res.status(404).json({ error: 'Route not found' });
+  }
+  res.status(404).send('Not found');
 });
 
 app.use((err, req, res, next) => {
