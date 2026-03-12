@@ -233,10 +233,10 @@
       <h2>Apple Reminders Bridge Key</h2>
       <p style="color:#555;margin:.25rem 0 1rem">Copy this key — it will not be shown again. Add both lines to your <code>hb-task-server</code> <code>.env</code> file, then restart the server.</p>
       <div style="background:#f8f8f8;border:1px solid #e0e0e0;border-radius:6px;padding:1rem;font-family:monospace;font-size:.85rem;line-height:1.8;word-break:break-all">
-        <div>BRIDGE_URL=wss://your-upq-domain.com/bridge</div>
+        <div>BRIDGE_URL=ws://<span id="bridge-url-host">your-upq-domain.com</span>/bridge</div>
         <div>BRIDGE_API_KEY=<span id="apple-key-display" style="color:#1a73e8"></span></div>
       </div>
-      <p style="font-size:.85rem;color:#888;margin:.75rem 0 0">Once <code>hb-task-server</code> is running with this key, refresh this page and Apple Reminders will show as Connected.</p>
+      <p style="font-size:.85rem;color:#888;margin:.75rem 0 0">Once <code>hb-task-server</code> is running with this key, this page will update automatically.</p>
       <div class="modal-actions" style="margin-top:1.25rem">
         <button class="btn btn-primary" onclick="closeAppleKeyModal()">Done</button>
       </div>
@@ -363,9 +363,11 @@
         const res = await fetch('/auth/bridge/key', { method: 'POST', headers: authHeaders() });
         const data = await res.json();
         if (!res.ok) { showBanner(data.error || 'Failed to generate key', 'error'); return; }
+        document.getElementById('bridge-url-host').textContent = window.location.host;
         document.getElementById('apple-key-display').textContent = data.apiKey;
         document.getElementById('apple-key-modal').style.display = 'flex';
         renderAppleStatus(false, true);
+        startBridgePoll();
       } catch {
         showBanner('Could not reach the server.', 'error');
       }
@@ -377,6 +379,7 @@
         const res = await fetch('/auth/bridge/key', { method: 'DELETE', headers: authHeaders() });
         if (!res.ok) { const d = await res.json(); showBanner(d.error || 'Failed to revoke key', 'error'); return; }
         showBanner('Apple Reminders bridge key revoked.');
+        stopBridgePoll();
         renderAppleStatus(false, false);
       } catch {
         showBanner('Could not reach the server.', 'error');
@@ -385,6 +388,26 @@
 
     function closeAppleKeyModal() {
       document.getElementById('apple-key-modal').style.display = 'none';
+    }
+
+    let bridgePollInterval = null;
+
+    function startBridgePoll() {
+      if (bridgePollInterval) return;
+      bridgePollInterval = setInterval(async () => {
+        try {
+          const res = await fetch('/auth/bridge/status', { headers: authHeaders() });
+          const s = await res.json();
+          if (s.connected) {
+            stopBridgePoll();
+            renderAppleStatus(true, true);
+          }
+        } catch { /* ignore */ }
+      }, 5000);
+    }
+
+    function stopBridgePoll() {
+      if (bridgePollInterval) { clearInterval(bridgePollInterval); bridgePollInterval = null; }
     }
 
     async function loadUserInfo() {
@@ -419,6 +442,7 @@
         const res = await fetch('/auth/bridge/status', { headers: authHeaders() });
         const s = await res.json();
         renderAppleStatus(s.connected, s.hasKey);
+        if (s.hasKey && !s.connected) startBridgePoll();
       } catch {
         renderAppleStatus(false, false);
       }
