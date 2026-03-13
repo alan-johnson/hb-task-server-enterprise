@@ -340,6 +340,18 @@ body.dashboard {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.btn-spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(255,255,255,.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  vertical-align: middle;
+  margin-right: .4em;
+}
+
 /* Task count pill on list cards */
 .list-count {
   font-size: .8rem;

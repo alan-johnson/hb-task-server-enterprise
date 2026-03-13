@@ -387,7 +387,7 @@
       const submitBtn = document.getElementById('modal-submit');
       submitBtn.disabled = true;
       const original = submitBtn.textContent;
-      submitBtn.textContent = 'Saving…';
+      submitBtn.innerHTML = '<span class="btn-spinner"></span>Saving…';
 
       const body = { name };
       if (notes)    body.notes    = notes;
@@ -418,8 +418,8 @@
       } catch (err) {
         showBanner(err.message, 'error');
       } finally {
-        submitBtn.disabled    = false;
-        submitBtn.textContent = original;
+        submitBtn.disabled  = false;
+        submitBtn.innerHTML = original;
       }
     }
 
