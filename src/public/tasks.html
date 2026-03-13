@@ -282,12 +282,14 @@
 
     function taskCard(task) {
       const done    = task.completed;
-      const tag     = done ? null : task.classification;
-      const tagPill = tag ? `<span class="tag-pill tag-pill-${bucketCss(tag)}">${escHtml(bucketLabel(tag))}</span>` : '';
-      const due     = task.dueDate ? `<span class="task-due">Due ${formatDate(task.dueDate)}</span>` : '';
-      const updated = task.updated ? `<span class="task-due">Updated ${formatDate(task.updated)}</span>` : '';
-      const notes   = task.notes   ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
-      const hasDetails = !!(due || updated || notes);
+      const tag      = done ? null : task.classification;
+      const tagPill  = tag ? `<span class="tag-pill tag-pill-${bucketCss(tag)}">${escHtml(bucketLabel(tag))}</span>` : '';
+      const due      = task.dueDate  ? `<span class="task-due">Due ${formatDate(task.dueDate)}</span>` : '';
+      const updated  = task.updated  ? `<span class="task-due">Updated ${formatDate(task.updated)}</span>` : '';
+      const notes    = task.notes    ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
+      const priorityLabel = { high: 'High', normal: 'Normal', medium: 'Medium', low: 'Low' }[task.priority];
+      const priority = priorityLabel ? `<span class="task-due">Priority: ${priorityLabel}</span>` : '';
+      const hasDetails = !!(due || updated || notes || priority);
 
       const completeBtn = done
         ? `<div class="task-check task-check-done">✓</div>`
@@ -301,7 +303,7 @@
             <div class="task-name${done ? ' task-name-done' : ''}">${tagPill}${escHtml(task.name)}</div>
             ${hasDetails ? `
             <div class="task-details">
-              ${due}${updated}${notes}
+              ${due}${updated}${priority}${notes}
             </div>` : ''}
           </div>
           ${hasDetails ? '<div class="task-expand-icon" onclick="toggleExpand(this.previousElementSibling)">›</div>' : ''}
