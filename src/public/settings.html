@@ -427,9 +427,9 @@
     async function init() {
       await loadUserInfo();
 
-      // Load OAuth provider authorization (credential existence check — no live API call)
+      // Load OAuth provider status via live API call — source of truth
       try {
-        const res = await fetch('/auth/providers/authorized', { headers: authHeaders() });
+        const res = await fetch('/auth/providers/status', { headers: authHeaders() });
         const auth = await res.json();
         renderProviderStatus('microsoft', auth.microsoft);
         renderProviderStatus('google', auth.google);

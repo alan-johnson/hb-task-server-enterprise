@@ -768,9 +768,13 @@ app.get('/api/tasks/unified', authService.requireAuth(), async (req, res) => {
           for (const task of tasks) {
             allTasks.push({ ...task, provider: providerName, listId: list.id, listName: list.name });
           }
-        } catch { /* skip lists that fail to load */ }
+        } catch (err) {
+          console.error(`unified: failed to load tasks for list ${list.id} (${providerName}):`, err.message);
+        }
       }));
-    } catch { /* skip providers that fail to initialize */ }
+    } catch (err) {
+      console.error(`unified: failed to initialize provider ${providerName} for user ${userId}:`, err.message);
+    }
   }));
 
   const rules = await userService.getClassificationRules(userId) || classificationConfig;
