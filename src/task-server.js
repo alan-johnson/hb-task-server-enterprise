@@ -413,6 +413,16 @@ app.get('/auth/providers/status', authService.requireAuth(), async (req, res) =>
   res.json(status);
 });
 
+// Returns whether credentials are stored for each provider — no live API call.
+app.get('/auth/providers/authorized', authService.requireAuth(), async (req, res) => {
+  const userId = req.user.userId;
+  const [msCreds, gCreds] = await Promise.all([
+    userService.getCredentials(userId, 'microsoft'),
+    userService.getCredentials(userId, 'google'),
+  ]);
+  res.json({ microsoft: !!msCreds, google: !!gCreds });
+});
+
 // ============================================
 // Provider OAuth Routes
 // ============================================
@@ -587,30 +597,10 @@ app.patch('/auth/default-provider', authService.requireAuth(), async (req, res) 
 app.get('/api/settings', authService.requireAuth(), async (req, res) => {
   try {
     const userId = req.user.userId;
-    const [user, providerStatuses, bridgeHasKey, classificationRules] = await Promise.all([
+    const [user, msCreds, gCreds, bridgeHasKey, classificationRules] = await Promise.all([
       userService.getUser(userId),
-      (async () => {
-        const out = {};
-        await Promise.all(['microsoft', 'google'].map(async (p) => {
-          const cacheKey = `status:${userId}:${p}`;
-          const cached = cache.get(cacheKey);
-          if (cached !== null) { out[p] = cached; return; }
-          try {
-            const creds = await userService.getCredentials(userId, p);
-            if (!creds) { cache.set(cacheKey, false, TTL.status); out[p] = false; return; }
-            const { provider } = getProviderForUser({ ...req, query: { provider: p }, body: {} });
-            await initializeProvider(provider, p, userId);
-            await provider.getLists();
-            cache.set(cacheKey, true, TTL.status);
-            out[p] = true;
-          } catch {
-            cache.set(cacheKey, false, TTL.status);
-            out[p] = false;
-          }
-        }));
-        out.apple = bridgeServer.isConnected(userId);
-        return out;
-      })(),
+      userService.getCredentials(userId, 'microsoft'),
+      userService.getCredentials(userId, 'google'),
       userService.hasBridgeApiKey(userId),
       userService.getClassificationRules(userId),
     ]);
@@ -622,7 +612,11 @@ app.get('/api/settings', authService.requireAuth(), async (req, res) => {
         defaultProvider: user.defaultProvider,
         showCompleted:   user.showCompleted,
       },
-      providers: providerStatuses,
+      providers: {
+        microsoft: !!msCreds,
+        google:    !!gCreds,
+        apple:     bridgeServer.isConnected(userId),
+      },
       bridge: {
         hasKey:    bridgeHasKey,
         connected: bridgeServer.isConnected(userId),

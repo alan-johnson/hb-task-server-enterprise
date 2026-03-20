@@ -37,7 +37,7 @@
 
     <div id="banner" class="banner" style="display:none"></div>
 
-    <div class="section-title">Connected Providers</div>
+    <div class="section-title">Providers</div>
 
     <div class="provider-grid" id="provider-grid">
 
@@ -306,31 +306,32 @@
     }
 
     async function disconnectProvider(provider) {
-      if (!confirm(`Disconnect ${provider}? You will need to reconnect to use it again.`)) return;
+      const name = provider.charAt(0).toUpperCase() + provider.slice(1);
+      if (!confirm(`Revoke ${name} authorization? You will need to re-authorize to use it again.`)) return;
       try {
         const res = await fetch(`/auth/provider/${provider}`, {
           method: 'DELETE',
           headers: authHeaders()
         });
-        if (!res.ok) { const d = await res.json(); showBanner(d.error || 'Failed to disconnect', 'error'); return; }
-        showBanner(`${provider.charAt(0).toUpperCase() + provider.slice(1)} disconnected.`);
+        if (!res.ok) { const d = await res.json(); showBanner(d.error || 'Failed to revoke', 'error'); return; }
+        showBanner(`${name} authorization revoked.`);
         renderProviderStatus(provider, false);
       } catch {
         showBanner('Could not reach the server.', 'error');
       }
     }
 
-    function renderProviderStatus(provider, connected) {
+    function renderProviderStatus(provider, authorized) {
       const el = document.getElementById(`actions-${provider}`);
-      if (connected) {
+      if (authorized) {
         el.innerHTML = `
-          <span class="badge badge-connected">Connected ✓</span>
+          <span class="badge badge-connected">Authorized ✓</span>
           <button class="btn btn-secondary btn-sm" onclick="setDefault('${provider}')">Set as Default</button>
-          <button class="btn btn-danger btn-sm" onclick="disconnectProvider('${provider}')">Disconnect</button>
+          <button class="btn btn-danger btn-sm" onclick="disconnectProvider('${provider}')">Revoke</button>
         `;
       } else {
         el.innerHTML = `
-          <button class="btn btn-primary btn-sm" onclick="connectProvider('${provider}')">Connect</button>
+          <button class="btn btn-primary btn-sm" onclick="connectProvider('${provider}')">Authorize</button>
         `;
       }
     }
@@ -426,12 +427,12 @@
     async function init() {
       await loadUserInfo();
 
-      // Load OAuth provider status
+      // Load OAuth provider authorization (credential existence check — no live API call)
       try {
-        const res = await fetch('/auth/providers/status', { headers: authHeaders() });
-        const status = await res.json();
-        renderProviderStatus('microsoft', status.microsoft);
-        renderProviderStatus('google', status.google);
+        const res = await fetch('/auth/providers/authorized', { headers: authHeaders() });
+        const auth = await res.json();
+        renderProviderStatus('microsoft', auth.microsoft);
+        renderProviderStatus('google', auth.google);
       } catch {
         renderProviderStatus('microsoft', false);
         renderProviderStatus('google', false);
@@ -453,7 +454,7 @@
       const reconnect = params.get('reconnect');
       if (connected) {
         const name = connected.charAt(0).toUpperCase() + connected.slice(1);
-        showBanner(`${name} Tasks connected successfully!`);
+        showBanner(`${name} authorized successfully!`);
         window.history.replaceState({}, '', '/settings.html');
       } else if (reconnect) {
         showBanner('No providers are connected. Please connect at least one to view your lists.', 'error');
