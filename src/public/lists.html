@@ -129,13 +129,6 @@
       return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
-    async function fetchListsForProvider(provider) {
-      const res = await fetch(`/api/lists?provider=${provider}`, { headers: authHeaders() });
-      if (!res.ok) return [];
-      const data = await res.json();
-      return (data.lists || []).map(l => ({ ...l, provider, taskCount: null }));
-    }
-
     // One request per provider returns counts for all its lists at once
     async function fetchCountsForProvider(provider) {
       try {
@@ -170,16 +163,25 @@
         document.getElementById('user-info').textContent = '';
       }
 
-      // Load provider status
-      let status = { microsoft: false, google: false };
+      // Fetch all lists across all connected providers in one call
+      let data;
       try {
-        const res = await fetch('/auth/providers/status', { headers: authHeaders() });
-        status = await res.json();
-      } catch { /* ignore */ }
+        const res = await fetch('/api/lists/all', { headers: authHeaders() });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        data = await res.json();
+      } catch (err) {
+        showBanner('Failed to load lists: ' + err.message, 'error');
+        document.getElementById('lists-container').innerHTML =
+          `<div class="empty-state">Could not load lists.</div>`;
+        return;
+      }
 
-      connectedProviders = Object.entries(status)
-        .filter(([, connected]) => connected)
-        .map(([p]) => p);
+      connectedProviders = data.providers || [];
+
+      if (connectedProviders.length === 0) {
+        window.location.href = '/settings.html?reconnect=true';
+        return;
+      }
 
       // If saved filter is for a provider that isn't connected, reset to 'all'
       if (activeFilter !== 'all' && !connectedProviders.includes(activeFilter)) {
@@ -199,23 +201,11 @@
         filterBar.appendChild(btn);
       });
 
-      if (connectedProviders.length === 0) {
-        window.location.href = '/settings.html?reconnect=true';
-        return;
-      }
+      allLists = (data.lists || []).map((l, i) => ({ ...l, taskCount: null, _idx: i }));
+      renderLists();
 
-      // Fetch lists from all connected providers in parallel
-      try {
-        const results = await Promise.all(connectedProviders.map(fetchListsForProvider));
-        allLists = results.flat().map((l, i) => ({ ...l, _idx: i }));
-        renderLists();
-        // One request per provider fetches all counts at once
-        connectedProviders.forEach(p => fetchCountsForProvider(p));
-      } catch (err) {
-        showBanner('Failed to load lists: ' + err.message, 'error');
-        document.getElementById('lists-container').innerHTML =
-          `<div class="empty-state">Could not load lists.</div>`;
-      }
+      // Fetch counts per provider (one request per provider covers all its lists)
+      connectedProviders.forEach(p => fetchCountsForProvider(p));
     }
 
     init();
