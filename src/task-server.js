@@ -537,6 +537,7 @@ app.delete('/auth/provider/:provider', authService.requireAuth(), async (req, re
     if (removed) {
       cache.deletePrefix(`status:${req.user.userId}:${provider}`);
       cache.deletePrefix(`lists:${req.user.userId}:${provider}`);
+      cache.delete(`lists:all:${req.user.userId}`);
       cache.deletePrefix(`counts:${req.user.userId}:${provider}`);
       res.json({ success: true, message: `${provider} disconnected successfully` });
     } else {
@@ -572,6 +573,97 @@ app.patch('/auth/default-provider', authService.requireAuth(), async (req, res) 
 
     await userService.updateDefaultProvider(req.user.userId, provider);
     res.json({ success: true, defaultProvider: provider });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Unified Settings
+// ============================================
+
+// GET /api/settings — returns all user settings in a single response.
+// Response: { user, providers, bridge, classification }
+app.get('/api/settings', authService.requireAuth(), async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const [user, providerStatuses, bridgeHasKey, classificationRules] = await Promise.all([
+      userService.getUser(userId),
+      (async () => {
+        const out = {};
+        await Promise.all(['microsoft', 'google'].map(async (p) => {
+          const cacheKey = `status:${userId}:${p}`;
+          const cached = cache.get(cacheKey);
+          if (cached !== null) { out[p] = cached; return; }
+          try {
+            const creds = await userService.getCredentials(userId, p);
+            if (!creds) { cache.set(cacheKey, false, TTL.status); out[p] = false; return; }
+            const { provider } = getProviderForUser({ ...req, query: { provider: p }, body: {} });
+            await initializeProvider(provider, p, userId);
+            await provider.getLists();
+            cache.set(cacheKey, true, TTL.status);
+            out[p] = true;
+          } catch {
+            cache.set(cacheKey, false, TTL.status);
+            out[p] = false;
+          }
+        }));
+        out.apple = bridgeServer.isConnected(userId);
+        return out;
+      })(),
+      userService.hasBridgeApiKey(userId),
+      userService.getClassificationRules(userId),
+    ]);
+
+    res.json({
+      user: {
+        username:        user.username,
+        email:           user.email,
+        defaultProvider: user.defaultProvider,
+        showCompleted:   user.showCompleted,
+      },
+      providers: providerStatuses,
+      bridge: {
+        hasKey:    bridgeHasKey,
+        connected: bridgeServer.isConnected(userId),
+      },
+      classification: {
+        rules:    classificationRules || classificationConfig,
+        isCustom: !!classificationRules,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PATCH /api/settings — update user preferences.
+// Accepted fields: defaultProvider, showCompleted
+app.patch('/api/settings', authService.requireAuth(), async (req, res) => {
+  try {
+    const { defaultProvider, showCompleted } = req.body;
+    const userId = req.user.userId;
+    const updates = {};
+
+    if (defaultProvider !== undefined) {
+      const valid = ['microsoft', 'google', 'apple'];
+      if (!valid.includes(defaultProvider)) {
+        return res.status(400).json({ error: 'Invalid defaultProvider' });
+      }
+      await userService.updateDefaultProvider(userId, defaultProvider);
+      updates.defaultProvider = defaultProvider;
+    }
+
+    if (showCompleted !== undefined) {
+      if (typeof showCompleted !== 'boolean') {
+        return res.status(400).json({ error: 'showCompleted must be a boolean' });
+      }
+      await userService.updatePreferences(userId, { showCompleted });
+      cache.deletePrefix(`counts:${userId}:`);
+      updates.showCompleted = showCompleted;
+    }
+
+    res.json({ success: true, ...updates });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -697,6 +789,43 @@ app.get('/api/tasks/unified', authService.requireAuth(), async (req, res) => {
 // ============================================
 // Task Lists Routes
 // ============================================
+
+// Returns lists from all connected providers in one call.
+// Response: { user, providers: [...], byProvider: { microsoft: [...], ... }, lists: [...] }
+// Each list in `lists` includes a `provider` field.
+app.get('/api/lists/all', authService.requireAuth(), async (req, res) => {
+  const userId = req.user.userId;
+  const cacheKey = `lists:all:${userId}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return res.json(cached);
+
+  const providerNames = [];
+  for (const p of ['microsoft', 'google']) {
+    const creds = await userService.getCredentials(userId, p);
+    if (creds) providerNames.push(p);
+  }
+  if (bridgeServer.isConnected(userId)) providerNames.push('apple');
+
+  const byProvider = {};
+  await Promise.all(providerNames.map(async (providerName) => {
+    try {
+      const { provider } = getProviderForUser({ ...req, query: { provider: providerName }, body: {} });
+      await initializeProvider(provider, providerName, userId);
+      byProvider[providerName] = await provider.getLists();
+    } catch {
+      byProvider[providerName] = [];
+    }
+  }));
+
+  const result = {
+    user: req.user.username,
+    providers: providerNames,
+    byProvider,
+    lists: providerNames.flatMap(p => (byProvider[p] || []).map(l => ({ ...l, provider: p })))
+  };
+  cache.set(cacheKey, result, TTL.lists);
+  res.json(result);
+});
 
 app.get('/api/lists', authService.requireAuth(), async (req, res) => {
   try {
