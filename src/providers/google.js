@@ -9,7 +9,7 @@ class GoogleTasksProvider {
   }
 
   // Initialize OAuth2 client
-  async initialize(accessToken, refreshToken) {
+  async initialize(accessToken, refreshToken, onTokenRefresh) {
     this.oauth2Client = new google.auth.OAuth2(
       this.config.clientId,
       this.config.clientSecret,
@@ -18,11 +18,22 @@ class GoogleTasksProvider {
 
     if (accessToken) {
       this.oauth2Client.setCredentials({
-        access_token: accessToken,
+        access_token:  accessToken,
         refresh_token: refreshToken
       });
     } else {
       throw new Error('Google Tasks requires authentication. Please provide access token.');
+    }
+
+    // When the Google client silently refreshes an expired access token, save
+    // the new token back to the database so the next server restart uses it.
+    if (onTokenRefresh) {
+      this.oauth2Client.on('tokens', (tokens) => {
+        onTokenRefresh({
+          accessToken:  tokens.access_token  || accessToken,
+          refreshToken: tokens.refresh_token || refreshToken,
+        }).catch(err => console.error('Failed to save refreshed Google token:', err.message));
+      });
     }
 
     this.tasksApi = google.tasks({ version: 'v1', auth: this.oauth2Client });

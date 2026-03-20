@@ -59,15 +59,13 @@ class MicrosoftTasksProvider {
   }
 
   // Initialize Graph client
-  async initialize(accessToken, refreshToken) {
-    this.refreshToken = refreshToken || null;
+  async initialize(accessToken, refreshToken, onTokenRefresh) {
+    this.refreshToken    = refreshToken    || null;
+    this.onTokenRefresh  = onTokenRefresh  || null;
+
     if (accessToken) {
       this.accessToken = accessToken;
-      this.client = Client.init({
-        authProvider: (done) => {
-          done(null, accessToken);
-        }
-      });
+      this._initClient();
     } else if (this.config.clientId && this.config.clientSecret && this.config.tenantId) {
       // Use client credentials flow (for service-to-service)
       const credential = new ClientSecretCredential(
@@ -75,18 +73,54 @@ class MicrosoftTasksProvider {
         this.config.clientId,
         this.config.clientSecret
       );
-      
       const tokenResponse = await credential.getToken('https://graph.microsoft.com/.default');
       this.accessToken = tokenResponse.token;
-      
-      this.client = Client.init({
-        authProvider: (done) => {
-          done(null, this.accessToken);
-        }
-      });
+      this._initClient();
     } else {
       throw new Error('Microsoft Tasks requires authentication. Please provide access token or credentials.');
     }
+  }
+
+  _initClient() {
+    const self = this;
+    this.client = Client.init({
+      authProvider: (done) => done(null, self.accessToken)
+    });
+  }
+
+  // Exchange a refresh token for a new access token and update stored credentials
+  async refreshAccessToken() {
+    if (!this.refreshToken) throw new Error('No Microsoft refresh token available');
+
+    const body = new URLSearchParams({
+      client_id:     this.config.clientId,
+      client_secret: this.config.clientSecret,
+      refresh_token: this.refreshToken,
+      grant_type:    'refresh_token',
+    });
+
+    const response = await fetch(
+      `https://login.microsoftonline.com/${this.config.tenantId}/oauth2/v2.0/token`,
+      { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body }
+    );
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error_description || 'Microsoft token refresh failed');
+    }
+
+    const tokens = await response.json();
+    this.accessToken = tokens.access_token;
+    if (tokens.refresh_token) this.refreshToken = tokens.refresh_token;
+    this._initClient();
+
+    if (this.onTokenRefresh) {
+      await this.onTokenRefresh({
+        accessToken:  this.accessToken,
+        refreshToken: this.refreshToken,
+      });
+    }
+
+    return { accessToken: this.accessToken, refreshToken: this.refreshToken };
   }
 
   // Get all task lists
