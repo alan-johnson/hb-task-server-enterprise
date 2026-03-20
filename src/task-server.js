@@ -7,6 +7,20 @@ const fs = require('fs');
 const path = require('path');
 const TOML = require('@iarna/toml');
 
+// File logger — writes to app.log in the project root so logs are visible
+// via cPanel File Manager when the hosting environment swallows stdout/stderr.
+const LOG_FILE = path.join(__dirname, '..', 'app.log');
+const _logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
+function fileLog(...args) {
+  const line = `[${new Date().toISOString()}] ${args.join(' ')}\n`;
+  process.stdout.write(line);
+  _logStream.write(line);
+}
+['log', 'warn', 'error'].forEach(level => {
+  const orig = console[level].bind(console);
+  console[level] = (...args) => { orig(...args); fileLog(`[${level.toUpperCase()}]`, ...args); };
+});
+
 const MicrosoftTasksProvider = require('./providers/microsoft');
 const GoogleTasksProvider = require('./providers/google');
 const AppleBridgeProvider = require('./providers/apple-bridge');
@@ -205,10 +219,36 @@ async function initializeProvider(provider, providerName, userId) {
     throw new Error(`${providerName} credentials not found. Please authenticate first.`);
   }
 
+  // Called by either provider when a token is silently refreshed, so the new
+  // token is persisted and survives the next server restart.
+  async function saveRefreshedTokens(tokens) {
+    await userService.storeCredentials(userId, providerName, {
+      accessToken:  tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    });
+    cache.delete(`status:${userId}:${providerName}`);
+    console.log(`[token-refresh] Saved refreshed ${providerName} token for user ${userId}`);
+  }
+
   if (providerName === 'microsoft') {
-    await provider.initialize(credentials.accessToken);
+    await provider.initialize(credentials.accessToken, credentials.refreshToken, saveRefreshedTokens);
+
+    // Proactively refresh if the stored token is older than 50 minutes —
+    // Microsoft access tokens expire after 60 minutes.
+    if (credentials.refreshToken) {
+      const updatedAt   = credentials.updatedAt ? new Date(credentials.updatedAt) : null;
+      const ageMinutes  = updatedAt ? (Date.now() - updatedAt.getTime()) / 60000 : Infinity;
+      if (ageMinutes > 50) {
+        try {
+          await provider.refreshAccessToken();
+          console.log(`[token-refresh] Proactively refreshed Microsoft token for user ${userId} (age: ${Math.round(ageMinutes)}m)`);
+        } catch (err) {
+          console.warn(`[token-refresh] Microsoft proactive refresh failed for user ${userId}: ${err.message}`);
+        }
+      }
+    }
   } else if (providerName === 'google') {
-    await provider.initialize(credentials.accessToken, credentials.refreshToken);
+    await provider.initialize(credentials.accessToken, credentials.refreshToken, saveRefreshedTokens);
   }
 }
 

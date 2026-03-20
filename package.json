@@ -14,7 +14,9 @@
     "dev:all": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
     "create-admin": "node scripts/create-admin.js",
     "delete-test-user": "node scripts/delete-test-user.js",
-    "get-verify-url": "node scripts/get-verify-url.js"
+    "get-verify-url": "node scripts/get-verify-url.js",
+    "test": "node test/test-integration.js",
+    "test:local": "BASE_URL=http://localhost:3500 node test/test-integration.js"
   },
   "dependencies": {
     "@azure/identity": "^4.0.0",
