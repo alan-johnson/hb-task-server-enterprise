@@ -15,8 +15,8 @@
 #
 # RESTARTING THE SERVER
 # ──────────────────────
-# Edit this file, then restart the task API server for changes to take effect:
-#   npm run start:api
+# Edit this file, then restart the UpQ enterprise server for changes to take effect:
+#   npm start
 #
 # To use a different config file path, set the environment variable:
 #   CLASSIFICATION_CONFIG=/path/to/your/rules.toml
