@@ -835,7 +835,14 @@ app.get('/api/lists/all', authService.requireAuth(), async (req, res) => {
   const userId = req.user.userId;
   const cacheKey = `lists:all:${userId}`;
   const cached = cache.get(cacheKey);
-  if (cached) return res.json(cached);
+  if (cached) {
+    // If the Apple bridge connection state changed since caching, bust the cache
+    // so the reconnected (or newly disconnected) state is reflected immediately.
+    const appleNowConnected = bridgeServer.isConnected(userId);
+    const appleWasCached    = cached.providers.includes('apple');
+    if (appleNowConnected === appleWasCached) return res.json(cached);
+    cache.delete(cacheKey);
+  }
 
   const providerNames = [];
   for (const p of ['microsoft', 'google']) {
