@@ -145,6 +145,7 @@ class GoogleTasksProvider {
       tasklist: listId,
       task: taskId,
       requestBody: {
+        id: taskId,
         status: 'completed'
       }
     });

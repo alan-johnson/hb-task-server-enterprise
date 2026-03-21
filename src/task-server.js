@@ -117,7 +117,7 @@ const TTL = {
   status: 5 * 60 * 1000,   // 5 min
   lists:  2 * 60 * 1000,   // 2 min
   counts: 2 * 60 * 1000,   // 2 min
-  tasks:  30 * 1000         // 30 sec
+  tasks:  2 * 60 * 1000     // 2 min
 };
 
 // Middleware
