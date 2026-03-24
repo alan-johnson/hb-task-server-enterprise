@@ -121,7 +121,8 @@ const TTL = {
 };
 
 // Middleware
-const allowedOrigin = process.env.ALLOWED_ORIGIN || '*';
+const allowedOrigin = process.env.ALLOWED_ORIGIN;
+if (!allowedOrigin) throw new Error('ALLOWED_ORIGIN env var is required');
 app.use(cors({ origin: allowedOrigin }));
 
 // Stripe webhook needs raw body — must be registered before bodyParser.json()
