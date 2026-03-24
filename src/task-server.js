@@ -250,6 +250,21 @@ async function initializeProvider(provider, providerName, userId) {
     }
   } else if (providerName === 'google') {
     await provider.initialize(credentials.accessToken, credentials.refreshToken, saveRefreshedTokens);
+
+    // Proactively refresh if the stored token is older than 50 minutes —
+    // Google access tokens expire after 60 minutes.
+    if (credentials.refreshToken) {
+      const updatedAt  = credentials.updatedAt ? new Date(credentials.updatedAt) : null;
+      const ageMinutes = updatedAt ? (Date.now() - updatedAt.getTime()) / 60000 : Infinity;
+      if (ageMinutes > 50) {
+        try {
+          await provider.refreshAccessToken();
+          console.log(`[token-refresh] Proactively refreshed Google token for user ${userId} (age: ${Math.round(ageMinutes)}m)`);
+        } catch (err) {
+          console.warn(`[token-refresh] Google proactive refresh failed for user ${userId}: ${err.message}`);
+        }
+      }
+    }
   }
 }
 

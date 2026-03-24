@@ -135,6 +135,14 @@ class GoogleTasksProvider {
     };
   }
 
+  // Explicitly refresh the access token using the stored refresh token.
+  // The 'tokens' event on oauth2Client fires automatically, which triggers the
+  // onTokenRefresh callback set in initialize() to persist the new tokens to DB.
+  async refreshAccessToken() {
+    if (!this.oauth2Client) throw new Error('Client not initialized. Call initialize() first.');
+    await this.oauth2Client.refreshAccessToken();
+  }
+
   // Mark task as complete
   async completeTask(listId, taskId) {
     if (!this.tasksApi) {
