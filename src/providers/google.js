@@ -73,6 +73,10 @@ class GoogleTasksProvider {
 
     const response = await this.tasksApi.tasklists.list();
 
+    if (!response.data.items) {
+      return [];
+    }
+
     return response.data.items.map(list => ({
       id: list.id,
       name: list.title,

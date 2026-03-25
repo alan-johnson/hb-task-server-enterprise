@@ -457,9 +457,12 @@ app.get('/auth/providers/status', authService.requireAuth(), async (req, res) =>
       if (!creds) { cache.set(cacheKey, false, TTL.status); status[p] = false; return; }
       const { provider } = getProviderForUser({ ...req, query: { provider: p }, body: {} });
       await initializeProvider(provider, p, req.user.userId);
-      await provider.getLists();
+      const lists = await provider.getLists();
       cache.set(cacheKey, true, TTL.status);
       status[p] = true;
+      // Prime the per-provider lists cache so the next /api/lists/all call
+      // doesn't need a redundant round-trip to the provider API.
+      cache.set(`lists:${req.user.userId}:${p}`, { provider: p, user: req.user.username, lists }, TTL.lists);
     } catch {
       cache.set(cacheKey, false, TTL.status);
       status[p] = false;
@@ -525,6 +528,7 @@ app.get('/auth/google/callback', async (req, res) => {
       refreshToken: tokens.refresh_token
     });
     cache.delete(`status:${userId}:google`);
+    cache.delete(`lists:all:${userId}`);
 
     res.redirect(`${WEB_URL}/settings.html?connected=google`);
   } catch (error) {
@@ -573,6 +577,7 @@ app.get('/auth/microsoft/callback', async (req, res) => {
       refreshToken: tokens.refresh_token || null,
     });
     cache.delete(`status:${userId}:microsoft`);
+    cache.delete(`lists:all:${userId}`);
 
     res.redirect(`${WEB_URL}/settings.html?connected=microsoft`);
   } catch (error) {
@@ -869,11 +874,20 @@ app.get('/api/lists/all', authService.requireAuth(), async (req, res) => {
 
   const byProvider = {};
   await Promise.all(providerNames.map(async (providerName) => {
+    // Use the per-provider cache if it was primed by the status check
+    const perProviderCached = providerName !== 'apple'
+      ? cache.get(`lists:${userId}:${providerName}`)
+      : null;
+    if (perProviderCached) {
+      byProvider[providerName] = perProviderCached.lists;
+      return;
+    }
     try {
       const { provider } = getProviderForUser({ ...req, query: { provider: providerName }, body: {} });
       await initializeProvider(provider, providerName, userId);
       byProvider[providerName] = await provider.getLists();
-    } catch {
+    } catch (err) {
+      console.error(`[lists/all] ${providerName} failed for user ${userId}:`, err.message);
       byProvider[providerName] = [];
     }
   }));
