@@ -3,15 +3,49 @@
 const nodemailer = require('nodemailer');
 
 function createTransporter() {
+  const port = parseInt((process.env.SMTP_PORT || '587').trim(), 10);
+  const smtpSecure = (process.env.SMTP_SECURE || '').trim();
+  // Port 465 uses implicit SSL (secure must be true).
+  // Port 587/25 use STARTTLS (secure false, then upgrade).
+  // SMTP_SECURE=true/false overrides the auto-detection if explicitly set.
+  const secure = smtpSecure === 'true' ? true
+               : smtpSecure === 'false' ? false
+               : port === 465;
   return nodemailer.createTransport({
-    host:   process.env.SMTP_HOST,
-    port:   parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: process.env.SMTP_SECURE === 'true',
+    host: (process.env.SMTP_HOST || '').trim(),
+    port,
+    secure,
     auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASSWORD,
+      user: (process.env.SMTP_USER || '').trim(),
+      pass: (process.env.SMTP_PASSWORD || '').trim(),
     },
   });
+}
+
+// Call once at startup to confirm SMTP connectivity. Logs result but does not
+// throw — a broken mail config should not prevent the server from starting.
+async function verifySmtp() {
+  if (!process.env.SMTP_HOST) {
+    console.warn('[emailService] SMTP_HOST not set — email sending is disabled.');
+    return;
+  }
+  try {
+    const t = createTransporter();
+    await t.verify();
+    console.log(`[emailService] SMTP ready: ${process.env.SMTP_HOST}:${process.env.SMTP_PORT || 587} user=${process.env.SMTP_USER}`);
+  } catch (err) {
+    console.error(`[emailService] SMTP connection failed (user=${process.env.SMTP_USER} host=${process.env.SMTP_HOST}:${process.env.SMTP_PORT || 587} secure=${process.env.SMTP_PORT === '465'}): ${err.message}`);
+  }
+}
+
+function resolveFrom() {
+  // Namecheap (and most providers) require the FROM address to match the
+  // authenticated SMTP_USER. If SMTP_FROM is not set, use SMTP_USER directly
+  // so the envelope sender always matches the authenticated account.
+  if (process.env.SMTP_FROM) return process.env.SMTP_FROM.trim();
+  const user = (process.env.SMTP_USER || '').trim();
+  if (user) return `handsbreadth LLC <${user}>`;
+  return 'handsbreadth LLC <noreply@handsbreadth.com>';
 }
 
 /**
@@ -32,7 +66,7 @@ async function sendVerificationEmail({ to, username, verifyUrl, createdAt }) {
     return;
   }
 
-  const from = process.env.SMTP_FROM || 'handsbreadth LLC <noreply@handsbreadth.com>';
+  const from = resolveFrom();
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -146,7 +180,7 @@ async function sendPasswordResetEmail({ to, username, resetUrl }) {
     return;
   }
 
-  const from = process.env.SMTP_FROM || 'handsbreadth LLC <noreply@handsbreadth.com>';
+  const from = resolveFrom();
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -222,4 +256,4 @@ function escHtml(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-module.exports = { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail };
+module.exports = { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail, verifySmtp };

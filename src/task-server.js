@@ -32,7 +32,7 @@ const stripe = process.env.STRIPE_SECRET_KEY
   ? require('stripe')(process.env.STRIPE_SECRET_KEY)
   : null;
 
-const { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail } = require('./emailService');
+const { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail, verifySmtp } = require('./emailService');
 
 // Load classification config from TOML (once at startup)
 const DEFAULT_CLASSIFICATION = {
@@ -410,6 +410,9 @@ app.post('/auth/forgot-password', async (req, res) => {
     if (result) {
       const resetUrl = `${WEB_URL}/reset-password.html?token=${result.token}`;
       await sendPasswordResetEmail({ to: result.email, username: result.username, resetUrl });
+      console.log(`[forgot-password] Reset email sent to ${result.email}`);
+    } else {
+      console.log(`[forgot-password] No reset sent for ${email} — not found or email not verified`);
     }
     res.json(generic);
   } catch (err) {
@@ -1307,4 +1310,5 @@ httpServer.listen(API_PORT, () => {
   console.log(`Default provider: ${process.env.DEFAULT_PROVIDER || 'microsoft'}`);
   console.log(`CORS origin:      ${allowedOrigin}`);
   console.log(`Bridge WebSocket: ws://localhost:${API_PORT}/bridge`);
+  verifySmtp();
 });
