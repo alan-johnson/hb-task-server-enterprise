@@ -124,7 +124,7 @@ body {
 }
 
 .site-header.hero {
-  justify-content: center;
+  justify-content: space-between;
   padding: 2.75rem 2rem;
 }
 
@@ -132,6 +132,10 @@ body {
   height: auto;
   max-width: 460px;
   border-radius: 14px;
+}
+
+.site-header.hero img:last-child {
+  max-width: 307px;
 }
 
 /* ── Auth page layout ── */

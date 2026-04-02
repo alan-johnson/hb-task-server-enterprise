@@ -16,6 +16,35 @@ const SSL_CERT   = process.env.SSL_CERT_PATH;
 
 const useHttps = !!(SSL_KEY && SSL_CERT);
 
+// ── Task-server health tracking ──────────────────────────────────────────────
+let taskServerUp = false; // pessimistic until first probe succeeds
+
+function probeTaskServer() {
+  let parsed;
+  try { parsed = new URL('/health', API_URL); } catch { taskServerUp = false; return; }
+  const mod = parsed.protocol === 'https:' ? https : http;
+  const req = mod.get(
+    { hostname: parsed.hostname, port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80), path: '/health', timeout: 2000 },
+    (res) => { taskServerUp = res.statusCode >= 200 && res.statusCode < 300; res.resume(); }
+  );
+  req.on('error',   () => { taskServerUp = false; });
+  req.on('timeout', () => { req.destroy(); taskServerUp = false; });
+}
+
+probeTaskServer();                        // check immediately on startup
+setInterval(probeTaskServer, 10_000);     // re-probe every 10 seconds
+
+const MAINTENANCE_PAGE = path.join(__dirname, 'public', 'maintenance.html');
+const STATIC_ASSET_RE  = /\.(css|js|png|jpg|jpeg|gif|ico|svg|webp|webmanifest|woff2?)$/i;
+
+// Maintenance gate — intercepts all requests when the task server is unreachable
+app.use((req, res, next) => {
+  if (!taskServerUp && !STATIC_ASSET_RE.test(req.path)) {
+    return res.status(503).sendFile(MAINTENANCE_PAGE);
+  }
+  next();
+});
+
 // Proxy API and auth routes to the task service
 app.use(
   ['/api', '/auth', '/billing', '/health'],
@@ -24,7 +53,8 @@ app.use(
     changeOrigin: true,
     onError: (err, req, res) => {
       console.error('Proxy error:', err.message);
-      res.status(502).json({ error: 'Task service unavailable', message: err.message });
+      taskServerUp = false;
+      res.status(503).sendFile(MAINTENANCE_PAGE);
     }
   })
 );
