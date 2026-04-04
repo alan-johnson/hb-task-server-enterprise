@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpQ task server — Support</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* ── Support page layout ── */
+    .support-container {
+      width: 100%;
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 2rem 1rem 3rem;
+    }
+
+    .support-hero {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+
+    .support-hero h1 {
+      font-size: 1.7rem;
+      font-weight: 700;
+      color: #182471;
+      margin-bottom: .5rem;
+    }
+
+    .support-hero p {
+      color: #666;
+      font-size: 1rem;
+    }
+
+    /* ── TOC ── */
+    .toc {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 1px 8px rgba(0,0,0,.08);
+      padding: 1.5rem 1.75rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .toc h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #182471;
+      margin-bottom: .85rem;
+    }
+
+    .toc ol {
+      padding-left: 1.25rem;
+      display: grid;
+      gap: .35rem;
+    }
+
+    .toc li { font-size: .92rem; }
+    .toc a { color: #2664c8; text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+
+    /* ── Sections ── */
+    .support-section {
+      margin-bottom: 2.75rem;
+    }
+
+    .support-section h2 {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: #182471;
+      border-bottom: 2px solid #e8e8ed;
+      padding-bottom: .5rem;
+      margin-bottom: 1.25rem;
+      scroll-margin-top: 80px;
+    }
+
+    .support-section h3 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: #333;
+      margin: 1.5rem 0 .6rem;
+      scroll-margin-top: 80px;
+    }
+
+    .support-section p {
+      font-size: .95rem;
+      color: #444;
+      line-height: 1.7;
+      margin-bottom: .75rem;
+    }
+
+    .support-section ul,
+    .support-section ol {
+      padding-left: 1.4rem;
+      margin-bottom: .75rem;
+    }
+
+    .support-section li {
+      font-size: .95rem;
+      color: #444;
+      line-height: 1.7;
+      margin-bottom: .25rem;
+    }
+
+    /* ── Step-by-step boxes ── */
+    .steps {
+      background: #f8f9fd;
+      border: 1px solid #e0e4f0;
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      margin: .75rem 0 1rem;
+      counter-reset: step-counter;
+    }
+
+    .step {
+      display: flex;
+      gap: .9rem;
+      align-items: flex-start;
+      margin-bottom: .9rem;
+    }
+
+    .step:last-child { margin-bottom: 0; }
+
+    .step-num {
+      background: #182471;
+      color: #fff;
+      font-size: .75rem;
+      font-weight: 700;
+      border-radius: 50%;
+      width: 1.5rem;
+      height: 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: .15rem;
+    }
+
+    .step-body {
+      font-size: .93rem;
+      color: #333;
+      line-height: 1.65;
+    }
+
+    .step-body strong { color: #182471; }
+
+    /* ── Info / tip callouts ── */
+    .callout {
+      display: flex;
+      gap: .75rem;
+      align-items: flex-start;
+      padding: .9rem 1.1rem;
+      border-radius: 10px;
+      margin: .75rem 0;
+      font-size: .9rem;
+      line-height: 1.6;
+    }
+
+    .callout-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: .05rem; }
+
+    .callout-info    { background: #e9f0fb; color: #1a3a7a; border: 1px solid #c5d5f0; }
+    .callout-tip     { background: #eaf6e9; color: #2a5c28; border: 1px solid #b8e0b6; }
+    .callout-warning { background: #fff8e1; color: #7a5800; border: 1px solid #ffe082; }
+
+    /* ── FAQ accordion ── */
+    .faq-item {
+      border: 1px solid #e0e4f0;
+      border-radius: 10px;
+      margin-bottom: .6rem;
+      overflow: hidden;
+    }
+
+    .faq-question {
+      width: 100%;
+      background: #fff;
+      border: none;
+      padding: .95rem 1.25rem;
+      text-align: left;
+      font-size: .95rem;
+      font-weight: 600;
+      color: #182471;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: .75rem;
+      transition: background .15s;
+    }
+
+    .faq-question:hover { background: #f4f6fb; }
+
+    .faq-chevron {
+      font-size: .8rem;
+      color: #888;
+      flex-shrink: 0;
+      transition: transform .2s;
+    }
+
+    .faq-item.open .faq-chevron { transform: rotate(180deg); }
+
+    .faq-answer {
+      display: none;
+      padding: 0 1.25rem 1rem;
+      font-size: .92rem;
+      color: #444;
+      line-height: 1.7;
+      background: #fff;
+    }
+
+    .faq-item.open .faq-answer { display: block; }
+
+    .faq-answer p { margin-bottom: .5rem; }
+    .faq-answer p:last-child { margin-bottom: 0; }
+    .faq-answer ul { padding-left: 1.3rem; }
+    .faq-answer li { margin-bottom: .2rem; }
+
+    /* ── Plan cards ── */
+    .plan-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+      margin: .75rem 0 1rem;
+    }
+
+    .plan-card {
+      background: #fff;
+      border: 1.5px solid #e0e4f0;
+      border-radius: 12px;
+      padding: 1.25rem;
+      text-align: center;
+    }
+
+    .plan-card.best-value { border-color: #182471; }
+
+    .plan-name {
+      font-weight: 700;
+      font-size: .95rem;
+      color: #182471;
+      margin-bottom: .3rem;
+    }
+
+    .plan-price {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #333;
+    }
+
+    .plan-price span { font-size: .85rem; font-weight: 400; color: #888; }
+
+    .plan-detail {
+      font-size: .8rem;
+      color: #777;
+      margin-top: .3rem;
+      line-height: 1.5;
+    }
+
+    .plan-badge {
+      display: inline-block;
+      background: #182471;
+      color: #fff;
+      font-size: .7rem;
+      font-weight: 700;
+      border-radius: 20px;
+      padding: .15rem .6rem;
+      margin-bottom: .5rem;
+    }
+
+    /* ── Contact section ── */
+    .contact-card {
+      background: #182471;
+      color: #fff;
+      border-radius: 14px;
+      padding: 2rem;
+      text-align: center;
+    }
+
+    .contact-card h2 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: .5rem;
+      color: #fff;
+      border: none;
+      padding: 0;
+    }
+
+    .contact-card p {
+      color: rgba(255,255,255,.8);
+      margin-bottom: 1.25rem;
+    }
+
+    .contact-card a.btn {
+      background: #fff;
+      color: #182471;
+      font-weight: 600;
+      width: auto;
+      display: inline-block;
+      padding: .65rem 1.75rem;
+    }
+
+    .contact-card a.btn:hover { opacity: .9; }
+
+    @media (max-width: 480px) {
+      .support-hero h1 { font-size: 1.35rem; }
+      .steps { padding: 1rem; }
+      .plan-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body class="dashboard">
+  <header class="site-header">
+    <a href="/lists.html"><img src="/images/handsbreadth-logo-web.png" alt="handsbreadth"></a>
+    <div style="display:flex;align-items:center;gap:.5rem">
+      <img src="/images/UpQ-branding-image-web.png" alt="UpQ" style="height:40px;width:auto;border-radius:0">
+      <div style="display:flex;flex-direction:column;line-height:1.15;font-size:.82rem;font-weight:600;color:#fff;letter-spacing:.01em;text-align:left">
+        <span>task</span>
+        <span>server</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="support-container">
+
+    <div class="support-hero">
+      <h1>UpQ Support</h1>
+      <p>Find answers, setup guides, and tips for getting the most out of UpQ.</p>
+    </div>
+
+    <!-- Table of Contents -->
+    <div class="toc">
+      <h2>On this page</h2>
+      <ol>
+        <li><a href="#getting-started">Getting Started</a></li>
+        <li><a href="#subscription">Subscription Plans</a></li>
+        <li><a href="#features">Features Overview</a></li>
+        <li><a href="#connect-microsoft">Connecting Microsoft Tasks</a></li>
+        <li><a href="#connect-google">Connecting Google Tasks</a></li>
+        <li><a href="#connect-apple">Connecting Apple Reminders</a></li>
+        <li><a href="#faq">Frequently Asked Questions</a></li>
+        <li><a href="#contact">Contact Support</a></li>
+      </ol>
+    </div>
+
+    <!-- ── Getting Started ── -->
+    <div class="support-section" id="getting-started">
+      <h2>1. Getting Started</h2>
+
+      <h3>Creating an account</h3>
+      <p>To use UpQ you need to register a free account. Visit the sign-in page and click <strong>Register</strong>.</p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">On the sign-in page, click <strong>Register</strong> at the bottom of the form.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">Enter a <strong>username</strong>, <strong>password</strong>, and your <strong>email address</strong>. All three are required.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">Click <strong>Create Account</strong>. A verification email will be sent to the address you entered.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-body">Open the email and click the <strong>Verify my email</strong> link. This confirms your address and takes you to the subscription page.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">5</div>
+          <div class="step-body">Choose a subscription plan and complete checkout. You can start with the free trial — no charges until the trial period ends.</div>
+        </div>
+      </div>
+
+      <div class="callout callout-info">
+        <span class="callout-icon">ℹ️</span>
+        <span>Your account cannot be used until the email address is verified. If you don't see the verification email, check your spam folder. You can request a new one from the sign-in page.</span>
+      </div>
+
+      <h3>Signing in</h3>
+      <p>Go to the sign-in page, enter your username and password, and click <strong>Sign In</strong>. You will be taken directly to your task lists.</p>
+
+      <h3>Resetting a forgotten password</h3>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">On the sign-in page, click <strong>Forgot password?</strong></div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">Enter the <strong>email address</strong> associated with your account and click <strong>Send Reset Link</strong>.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">Open the email and click the reset link. It expires in <strong>1 hour</strong>.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-body">Enter and confirm your new password, then click <strong>Reset Password</strong>. You will be signed in automatically.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Subscription Plans ── -->
+    <div class="support-section" id="subscription">
+      <h2>2. Subscription Plans</h2>
+
+      <p>UpQ requires an active subscription after the free trial ends. All plans include full access to every feature.</p>
+
+      <div class="plan-grid">
+        <div class="plan-card">
+          <div class="plan-name">Free Trial</div>
+          <div class="plan-price">$0 <span>/ 30 days</span></div>
+          <div class="plan-detail">Full access. No charge until the trial ends. A credit card is required to start.</div>
+        </div>
+        <div class="plan-card best-value">
+          <div class="plan-badge">Best Value</div>
+          <div class="plan-name">Annual</div>
+          <div class="plan-price">$85 <span>/ year</span></div>
+          <div class="plan-detail">About $7.08/month. Billed once per year.</div>
+        </div>
+        <div class="plan-card">
+          <div class="plan-name">Monthly</div>
+          <div class="plan-price">$8 <span>/ month</span></div>
+          <div class="plan-detail">Billed monthly. Cancel anytime.</div>
+        </div>
+      </div>
+
+      <div class="callout callout-tip">
+        <span class="callout-icon">💡</span>
+        <span>After the free trial, you will be billed at the monthly rate unless you switch to Annual. You can change your plan or cancel at any time from your account settings.</span>
+      </div>
+    </div>
+
+    <!-- ── Features Overview ── -->
+    <div class="support-section" id="features">
+      <h2>3. Features Overview</h2>
+
+      <h3>Task Lists</h3>
+      <p>The <strong>Lists</strong> view shows all your task lists from every connected provider. If you have both Microsoft Tasks and Google Tasks connected, all lists appear together. Use the filter tabs at the top to view lists from a specific provider. Each list shows a count of remaining tasks.</p>
+
+      <h3>Managing Tasks</h3>
+      <p>Click any list to open it and see its tasks. From there you can:</p>
+      <ul>
+        <li><strong>Create a task</strong> — Click <strong>+ New Task</strong>. Enter a name, optional notes, and an optional due date.</li>
+        <li><strong>Complete a task</strong> — Click the circle button to the left of the task name. It turns green on hover.</li>
+        <li><strong>Edit a task</strong> — Hover over a task and click <strong>Edit</strong> to change the name, notes, or due date.</li>
+        <li><strong>Delete a task</strong> — Hover over a task and click <strong>Delete</strong>. A confirmation prompt will appear before it is permanently removed.</li>
+      </ul>
+      <div class="callout callout-warning">
+        <span class="callout-icon">⚠️</span>
+        <span>Deleting a task permanently removes it from the provider (Microsoft To Do, Google Tasks, etc.). This cannot be undone.</span>
+      </div>
+
+      <h3>All Tasks View</h3>
+      <p>The <strong>All Tasks</strong> view shows tasks from every connected provider and every list in one place. Tasks are grouped and color-coded by their classification.</p>
+
+      <h3>Task Classification — Now, Not Now, Later</h3>
+      <p>Every task is automatically classified into one of three buckets:</p>
+      <ul>
+        <li><strong>Now</strong> — Overdue or high-priority tasks that need immediate attention.</li>
+        <li><strong>Not Now</strong> — Tasks with future due dates or normal priority.</li>
+        <li><strong>Later</strong> — Everything else.</li>
+      </ul>
+      <p>Classification is computed automatically on the server each time tasks are loaded. You can customize the rules or reset them to defaults in <strong>Settings → Classification Rules</strong>.</p>
+
+      <h3>Settings</h3>
+      <p>The <strong>Settings</strong> page is where you manage everything about your account:</p>
+      <ul>
+        <li>Connect and disconnect Microsoft Tasks and Google Tasks.</li>
+        <li>Set your <strong>default provider</strong> — the one that loads first when you open UpQ.</li>
+        <li>Toggle <strong>Show Completed</strong> — when off, completed tasks are excluded from the count shown on each list card.</li>
+        <li>Export, import, or reset your task classification rules.</li>
+      </ul>
+    </div>
+
+    <!-- ── Connect Microsoft ── -->
+    <div class="support-section" id="connect-microsoft">
+      <h2>4. Connecting Microsoft Tasks</h2>
+
+      <p>UpQ connects to <strong>Microsoft To Do</strong> using your personal Microsoft account (Outlook, Hotmail, Live, or a Microsoft 365 account). You authorize the connection once and UpQ handles everything from there.</p>
+
+      <h3>How to connect your Microsoft account</h3>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">Go to <strong>Settings</strong> in UpQ and find the <strong>Microsoft Tasks</strong> card.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">Click <strong>Connect</strong>. You will be redirected to a Microsoft sign-in page.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">Sign in with your Microsoft account. If you have multiple accounts, a picker will appear — choose the one that has your tasks.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-body">Microsoft will show a <strong>permissions consent screen</strong> listing what UpQ is requesting:
+            <ul style="margin-top:.35rem">
+              <li>Read and write your tasks</li>
+              <li>Sign you in and read your profile</li>
+              <li>Maintain access to data you have given it access to</li>
+            </ul>
+            Click <strong>Accept</strong>.
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">5</div>
+          <div class="step-body">You will be returned to UpQ Settings with Microsoft Tasks showing as <strong>Connected ✓</strong>.</div>
+        </div>
+      </div>
+
+      <div class="callout callout-info">
+        <span class="callout-icon">ℹ️</span>
+        <span>UpQ only accesses your tasks. It does not read your email, calendar, or any other Microsoft data. You can revoke access at any time from your Microsoft account's <strong>App permissions</strong> page or by clicking <strong>Disconnect</strong> in UpQ Settings.</span>
+      </div>
+
+      <h3>Troubleshooting Microsoft connection</h3>
+      <ul>
+        <li><strong>Wrong account connected</strong> — Click Disconnect in Settings, then Connect again. Microsoft will show the account picker so you can choose a different account.</li>
+        <li><strong>Tasks not loading after connecting</strong> — Try refreshing the page. If the problem persists, disconnect and reconnect.</li>
+        <li><strong>Consent screen asks for unexpected permissions</strong> — UpQ only requests the three permissions listed above. If you see anything else, do not accept and contact support.</li>
+      </ul>
+
+      <h3>Setting up Microsoft API access (administrators only)</h3>
+      <p>This section is for technical administrators setting up a self-hosted UpQ instance. Regular users do not need to do this.</p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">Go to <a href="https://portal.azure.com" target="_blank" rel="noopener">portal.azure.com</a> and sign in with a Microsoft account.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">In the search bar at the top, type <strong>App registrations</strong> and select it. Click <strong>New registration</strong>.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">Give the app a name (e.g. "UpQ Tasks"). Under <strong>Supported account types</strong>, choose <strong>Personal Microsoft accounts only</strong> for personal use, or <strong>Accounts in any organizational directory and personal accounts</strong> for broader access. Click <strong>Register</strong>.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-body">On the app's overview page, copy the <strong>Application (client) ID</strong> and the <strong>Directory (tenant) ID</strong> — you'll need these for your <code>.env</code> file.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">5</div>
+          <div class="step-body">In the left menu, click <strong>Manage → API permissions → Add a permission → Microsoft Graph → Delegated permissions</strong>. Search for and add: <strong>Tasks.ReadWrite</strong>, <strong>User.Read</strong>, and <strong>offline_access</strong>. Click <strong>Add permissions</strong>.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">6</div>
+          <div class="step-body">In the left menu, click <strong>Manage → Authentication → Add a platform → Web</strong>. Enter your redirect URI (e.g. <code>https://your-domain.com/auth/microsoft/callback</code>) and click <strong>Configure</strong>.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">7</div>
+          <div class="step-body">In the left menu, click <strong>Manage → Certificates & secrets → New client secret</strong>. Give it a description and choose an expiry. Click <strong>Add</strong>. Copy the <strong>Value</strong> (not the Secret ID) immediately — it will not be shown again.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">8</div>
+          <div class="step-body">Add to your <code>.env</code> file:
+            <br><code>MICROSOFT_CLIENT_ID=&lt;Application client ID&gt;</code>
+            <br><code>MICROSOFT_CLIENT_SECRET=&lt;Secret Value&gt;</code>
+            <br><code>MICROSOFT_TENANT_ID=consumers</code>
+            <br><code>MICROSOFT_REDIRECT_URI=https://your-domain.com/auth/microsoft/callback</code>
+          </div>
+        </div>
+      </div>
+      <div class="callout callout-warning">
+        <span class="callout-icon">⚠️</span>
+        <span>The client secret <strong>Value</strong> is a long string of characters — it is not the GUID shown in the "Secret ID" column. Copy only the Value column.</span>
+      </div>
+    </div>
+
+    <!-- ── Connect Google ── -->
+    <div class="support-section" id="connect-google">
+      <h2>5. Connecting Google Tasks</h2>
+
+      <p>UpQ connects to <strong>Google Tasks</strong> using your Google account. The same tasks you see in Gmail, Google Calendar, or the Google Tasks app will appear in UpQ.</p>
+
+      <h3>How to connect your Google account</h3>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">Go to <strong>Settings</strong> in UpQ and find the <strong>Google Tasks</strong> card.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">Click <strong>Connect</strong>. You will be redirected to a Google sign-in page.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">Sign in with your Google account.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-body">Google will show a permissions screen. UpQ requests access to <strong>Manage your tasks</strong> only. Click <strong>Continue</strong>.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">5</div>
+          <div class="step-body">You will be returned to UpQ Settings with Google Tasks showing as <strong>Connected ✓</strong>.</div>
+        </div>
+      </div>
+
+      <div class="callout callout-info">
+        <span class="callout-icon">ℹ️</span>
+        <span>UpQ only requests access to your tasks — not your email, drive, calendar, or any other Google data. You can revoke access anytime at <strong>myaccount.google.com → Security → Third-party apps</strong> or by clicking <strong>Disconnect</strong> in UpQ Settings.</span>
+      </div>
+
+      <h3>Troubleshooting Google connection</h3>
+      <ul>
+        <li><strong>Google shows a warning that the app is unverified</strong> — This may appear for self-hosted instances. Click <strong>Advanced</strong> then <strong>Go to [app name] (unsafe)</strong> to proceed. This is expected for apps that haven't been through Google's verification process.</li>
+        <li><strong>Tasks not loading after connecting</strong> — Google Tasks must be enabled in your Google account. Open <a href="https://tasks.google.com" target="_blank" rel="noopener">tasks.google.com</a> to activate it, then reconnect in UpQ Settings.</li>
+        <li><strong>Wrong account connected</strong> — Disconnect in Settings, then Connect again and choose a different Google account.</li>
+      </ul>
+
+      <h3>Setting up Google API access (administrators only)</h3>
+      <p>This section is for technical administrators setting up a self-hosted UpQ instance. Regular users do not need to do this.</p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">Go to <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a> and sign in. Click <strong>Select a project → New Project</strong>. Give it a name and click <strong>Create</strong>.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">In the left menu, go to <strong>APIs & Services → Library</strong>. Search for <strong>Tasks API</strong> and click <strong>Enable</strong>.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">Go to <strong>APIs & Services → OAuth consent screen</strong>. Choose <strong>External</strong> and click <strong>Create</strong>. Fill in the required fields (App name, support email, developer email). Click <strong>Save and Continue</strong> through the remaining steps.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-body">Go to <strong>APIs & Services → Credentials → Create Credentials → OAuth client ID</strong>. Set the application type to <strong>Web application</strong>.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">5</div>
+          <div class="step-body">Under <strong>Authorized redirect URIs</strong>, click <strong>Add URI</strong> and enter your redirect URI (e.g. <code>https://your-domain.com/auth/google/callback</code>). Click <strong>Create</strong>.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">6</div>
+          <div class="step-body">A dialog will show your <strong>Client ID</strong> and <strong>Client Secret</strong>. Copy both. Add to your <code>.env</code> file:
+            <br><code>GOOGLE_CLIENT_ID=&lt;Client ID&gt;</code>
+            <br><code>GOOGLE_CLIENT_SECRET=&lt;Client Secret&gt;</code>
+            <br><code>GOOGLE_REDIRECT_URI=https://your-domain.com/auth/google/callback</code>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">7</div>
+          <div class="step-body">On the <strong>OAuth consent screen</strong>, under <strong>Test users</strong>, add the Google accounts that will be used for testing. Users must be added here until the app is published.</div>
+        </div>
+      </div>
+      <div class="callout callout-tip">
+        <span class="callout-icon">💡</span>
+        <span>The redirect URI in Google Cloud Console must match <code>GOOGLE_REDIRECT_URI</code> in your <code>.env</code> exactly — including whether it uses <code>http</code> or <code>https</code>. A mismatch is the most common cause of "redirect_uri_mismatch" errors.</span>
+      </div>
+    </div>
+
+    <!-- ── Connect Apple ── -->
+    <div class="support-section" id="connect-apple">
+      <h2>6. Connecting Apple Reminders</h2>
+
+      <p>Apple Reminders requires a companion app called <strong>hb-task-server</strong> running on your Mac. It reads your Reminders via AppleScript and connects to UpQ over an encrypted WebSocket. No Apple account credentials are ever sent to the UpQ server.</p>
+
+      <div class="callout callout-warning">
+        <span class="callout-icon">⚠️</span>
+        <span>Apple Reminders integration requires a Mac that is running and connected to the internet. If your Mac is off or asleep, Apple tasks will not be accessible.</span>
+      </div>
+
+      <h3>Setup steps</h3>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">In UpQ Settings, find the <strong>Apple Reminders</strong> card and click <strong>Generate Bridge Key</strong>. Copy the key that appears — it is shown only once.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">Install <a href="https://github.com/handsbreadth/hb-task-server" target="_blank" rel="noopener">hb-task-server</a> on your Mac and follow its setup instructions.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">In hb-task-server's <code>.env</code> file, add:
+            <br><code>BRIDGE_URL=wss://tasks.handsbreadth.com/bridge</code>
+            <br><code>BRIDGE_API_KEY=&lt;the key you copied in step 1&gt;</code>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-body">Start hb-task-server on your Mac. It will connect to UpQ automatically.</div>
+        </div>
+        <div class="step">
+          <div class="step-num">5</div>
+          <div class="step-body">In UpQ Settings, the Apple Reminders card should now show a <strong>Connected</strong> status. Set Apple as your default provider if you wish.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── FAQ ── -->
+    <div class="support-section" id="faq">
+      <h2>7. Frequently Asked Questions</h2>
+
+      <div class="faq-item">
+        <button class="faq-question" onclick="toggleFaq(this)">
+          I didn't receive a verification email. What do I do?
+          <span class="faq-chevron">▼</span>
+        </button>
+        <div class="faq-answer">
+          <p>First, check your spam or junk folder — verification emails sometimes land there. If you still don't see it, go to the sign-in page and enter your username. If the account shows as unverified, a <strong>Resend verification email</strong> link will appear. Click it to receive a new verification email.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question" onclick="toggleFaq(this)">
+          I can't sign in even though I know my password.
+          <span class="faq-chevron">▼</span>
+        </button>
+        <div class="faq-answer">
+          <p>The most common cause is an unverified email address. After signing in, look for a yellow notice that says your email has not been verified. Click the resend link to receive a new verification email.</p>
+          <p>If your email is verified and you're still unable to sign in, use the <strong>Forgot password?</strong> link to reset your password.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question" onclick="toggleFaq(this)">
+          Why am I being asked to sign in again?
+          <span class="faq-chevron">▼</span>
+        </button>
+        <div class="faq-answer">
+          <p>UpQ sessions last 30 days. After 30 days of inactivity, you will be prompted to sign in again. This is normal and keeps your account secure.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question" onclick="toggleFaq(this)">
+          My tasks aren't showing up after connecting a provider.
+          <span class="faq-chevron">▼</span>
+        </button>
+        <div class="faq-answer">
+          <p>Try these steps in order:</p>
+          <ul>
+            <li>Refresh the page.</li>
+            <li>Check that the provider shows as <strong>Connected ✓</strong> in Settings. If it doesn't, try disconnecting and reconnecting.</li>
+            <li>For Google Tasks: make sure Google Tasks is active on your account by visiting <a href="https://tasks.google.com" target="_blank" rel="noopener">tasks.google.com</a>.</li>
+            <li>For Apple Reminders: confirm that hb-task-server is running on your Mac and shows "Connected" in Settings.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question" onclick="toggleFaq(this)">
+          How do I switch between Microsoft Tasks and Google Tasks?
+          <span class="faq-chevron">▼</span>
+        </button>
+        <div class="faq-answer">
+          <p>In <strong>Settings</strong>, find the provider you want to use by default and click <strong>Set as Default</strong>. Your task lists will load from that provider the next time you visit the Lists page. You can switch at any time — your tasks on all providers remain unchanged.</p>
+          <p>You can also see tasks from all providers at once in the <strong>All Tasks</strong> view.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question" onclick="toggleFaq(this)">
+          What is the Now / Not Now / Later classification?
+          <span class="faq-chevron">▼</span>
+        </button>
+        <div class="faq-answer">
+          <p>UpQ automatically classifies each task into one of three priority buckets:</p>
+          <ul>
+            <li><strong>Now</strong> — Overdue or high-priority tasks.</li>
+            <li><strong>Not Now</strong> — Tasks due in the future or with normal priority.</li>
+            <li><strong>Later</strong> — Everything else with no due date or priority.</li>
+          </ul>
+          <p>Classification is calculated automatically each time your tasks are loaded. You can customize the rules in <strong>Settings → Classification Rules</strong> and even export or import them as a TOML file. To restore the original behavior, click <strong>Reset to Defaults</strong>.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question" onclick="toggleFaq(this)">
+          Completed tasks are not showing in my list counts. Is this a bug?
+          <span class="faq-chevron">▼</span>
+        </button>
+        <div class="faq-answer">
+          <p>No — this is a preference. By default, completed tasks are excluded from the count shown on each list card so the number reflects your remaining work. To include completed tasks in counts, go to <strong>Settings → Preferences</strong> and turn on <strong>Show Completed</strong>.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question" onclick="toggleFaq(this)">
+          How do I disconnect a provider?
+          <span class="faq-chevron">▼</span>
+        </button>
+        <div class="faq-answer">
+          <p>Go to <strong>Settings</strong> and find the provider card. Click <strong>Disconnect</strong>. This removes the stored authorization from UpQ. Your tasks remain in the provider's own service (Microsoft To Do, Google Tasks, etc.) — nothing is deleted.</p>
+          <p>To fully revoke access, also remove the UpQ app from your Microsoft or Google account permissions page.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question" onclick="toggleFaq(this)">
+          How do I cancel my subscription?
+          <span class="faq-chevron">▼</span>
+        </button>
+        <div class="faq-answer">
+          <p>Contact support using the button below and include your account username. We will cancel your subscription promptly. You will retain access until the end of the current billing period.</p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question" onclick="toggleFaq(this)">
+          Is my data secure?
+          <span class="faq-chevron">▼</span>
+        </button>
+        <div class="faq-answer">
+          <p>Yes. UpQ takes several steps to protect your data:</p>
+          <ul>
+            <li>All connections use HTTPS/TLS encryption in transit.</li>
+            <li>OAuth access tokens for Microsoft and Google are encrypted at rest using AES-256-GCM before being stored.</li>
+            <li>Passwords are hashed using bcrypt and never stored in plain text.</li>
+            <li>Each user's data is completely isolated — no user can access another user's tasks or credentials.</li>
+            <li>Payment processing is handled entirely by Stripe. UpQ never sees your card number.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Contact ── -->
+    <div id="contact" class="contact-card">
+      <h2>Still need help?</h2>
+      <p>If you couldn't find the answer above, send us an email and we'll get back to you.</p>
+      <a href="mailto:support@handsbreadth.com" class="btn">Email Support</a>
+    </div>
+
+  </div>
+
+  <footer class="site-footer">Copyright 2026, handsbreadth LLC</footer>
+
+  <script>
+    function toggleFaq(btn) {
+      const item = btn.closest('.faq-item');
+      item.classList.toggle('open');
+    }
+  </script>
+</body>
+</html>
