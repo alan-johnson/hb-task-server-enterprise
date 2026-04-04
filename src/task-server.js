@@ -1279,6 +1279,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Legal pages (clean URLs for OAuth app registration)
 app.get('/privacy', (req, res) => res.sendFile(path.join(__dirname, 'public', 'privacy.html')));
 app.get('/terms',   (req, res) => res.sendFile(path.join(__dirname, 'public', 'terms.html')));
+app.get('/support', (req, res) => res.sendFile(path.join(__dirname, 'public', 'support.html')));
 
 // ============================================
 // Error handling
