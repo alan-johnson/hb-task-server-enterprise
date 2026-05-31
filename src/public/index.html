@@ -8,295 +8,145 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="manifest" href="/site.webmanifest">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>UpQ task server — Sign In</title>
+  <title>UpQ — Unified Task Server by Handsbreadth</title>
+  <meta name="description" content="UpQ is a unified task server that connects Google Tasks and Microsoft To Do, giving AI assistants and productivity tools a single API to manage your tasks.">
   <link rel="stylesheet" href="style.css">
+  <style>
+    .landing-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 1.5rem;
+    }
+    .landing-card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 2px 20px rgba(0,0,0,.09);
+      padding: 2.5rem 2.75rem;
+      width: 100%;
+      max-width: 620px;
+    }
+    .landing-eyebrow {
+      font-size: .8rem;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: #4dd2c2;
+      margin-bottom: .5rem;
+    }
+    .landing-headline {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: #182471;
+      line-height: 1.25;
+      margin-bottom: .75rem;
+    }
+    .landing-tagline {
+      font-size: 1rem;
+      color: #555;
+      line-height: 1.6;
+      margin-bottom: 2rem;
+    }
+    .feature-list {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: .65rem;
+    }
+    .feature-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: .6rem;
+      font-size: .95rem;
+      color: #333;
+      line-height: 1.5;
+    }
+    .feature-list li::before {
+      content: '';
+      display: block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #182471;
+      flex-shrink: 0;
+      margin-top: .45rem;
+    }
+    .data-notice {
+      background: #f0f2f8;
+      border-left: 3px solid #182471;
+      border-radius: 0 10px 10px 0;
+      padding: .9rem 1.1rem;
+      font-size: .88rem;
+      color: #444;
+      line-height: 1.6;
+      margin-bottom: 2rem;
+    }
+    .data-notice strong { color: #182471; }
+    .data-notice a { color: #182471; font-weight: 600; }
+    .landing-cta {
+      display: inline-block;
+      background: #182471;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 600;
+      padding: .8rem 2.25rem;
+      border-radius: 10px;
+      text-decoration: none;
+      transition: opacity .15s;
+    }
+    .landing-cta:hover { opacity: .85; }
+    @media (max-width: 520px) {
+      .landing-card { padding: 1.75rem 1.25rem; }
+      .landing-headline { font-size: 1.4rem; }
+    }
+  </style>
 </head>
 <body class="auth-page">
   <header class="site-header hero">
     <img src="/images/handsbreadth-logo-web.png" alt="handsbreadth — Solutions in the Palm of Your Hand">
     <img src="/images/UpQ-branding-image-web.png" alt="UpQ">
   </header>
-  <div class="auth-wrap">
-  <div class="auth-container">
-    <h1 id="form-title">Sign In</h1>
 
-    <div id="error-msg" class="error-msg"></div>
-
-    <!-- Login form -->
-    <form id="login-form">
-      <div class="form-group">
-        <label for="login-username">Username</label>
-        <input id="login-username" type="text" autocomplete="username" required>
-      </div>
-      <div class="form-group">
-        <label for="login-password">Password</label>
-        <input id="login-password" type="password" autocomplete="current-password" required>
-      </div>
-      <button type="submit" class="btn btn-primary">Sign In</button>
-    </form>
-    <div style="text-align:right;margin-top:.4rem">
-      <a href="#" id="forgot-link" style="font-size:.82rem;color:#182471" onclick="showForgotPassword(event)">Forgot password?</a>
-    </div>
-
-    <!-- Forgot-password panel -->
-    <div id="forgot-password-panel" style="display:none">
-      <p style="color:#555;font-size:.93rem;margin:0 0 1rem;line-height:1.5">
-        Enter your email address and we'll send you a link to reset your password.
+  <div class="landing-wrap">
+    <div class="landing-card">
+      <p class="landing-eyebrow">Handsbreadth</p>
+      <h1 class="landing-headline">UpQ — Unified Task Server</h1>
+      <p class="landing-tagline">
+        UpQ connects your Google Tasks and Microsoft To&nbsp;Do accounts through a single, secure API —
+        letting you and your AI tools manage tasks across every provider from one place.
       </p>
-      <div class="form-group">
-        <label for="forgot-email">Email</label>
-        <input id="forgot-email" type="email" autocomplete="email" required>
-      </div>
-      <button class="btn btn-primary" onclick="doForgotPassword(event)">Send Reset Link</button>
-      <div style="margin-top:.75rem;text-align:center">
-        <a href="#" style="font-size:.82rem;color:#182471" onclick="showLogin(event)">Back to Sign In</a>
-      </div>
-    </div>
 
-    <!-- Post-forgot confirmation -->
-    <div id="forgot-sent-notice" style="display:none;text-align:center">
-      <div style="width:56px;height:56px;background:#6fb768;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem">
-        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" width="28" height="28">
-          <path d="M4 8h24v16H4z" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
-          <path d="M4 8l12 10L28 8" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <h2 style="color:#182471;font-size:1.2rem;margin:0 0 .5rem">Check your email</h2>
-      <p style="color:#555;font-size:.93rem;line-height:1.6;margin:0 0 1rem">
-        If that email is registered, a reset link has been sent. The link expires in 1 hour.
-      </p>
-      <a href="#" style="font-size:.82rem;color:#182471" onclick="showLogin(event)">Back to Sign In</a>
-    </div>
+      <ul class="feature-list">
+        <li>View and manage tasks from Google Tasks and Microsoft To&nbsp;Do in one unified interface</li>
+        <li>Connect AI assistants (such as Claude) and productivity tools via a standardized task API</li>
+        <li>Authorize once with Google or Microsoft — UpQ works on your behalf without storing task content</li>
+        <li>Enterprise-grade security: OAuth tokens encrypted at rest with AES-256-GCM, passwords bcrypt-hashed</li>
+      </ul>
 
-    <!-- Unverified-email notice (shown after failed login due to unverified address) -->
-    <div id="unverified-notice" style="display:none;margin-top:.75rem;padding:.85rem 1rem;background:#fff8e1;border:1px solid #ffe082;border-radius:8px;font-size:.88rem;color:#555;line-height:1.5">
-      Your email address has not been verified.
-      <a href="#" id="resend-link" style="color:#182471;font-weight:600">Resend verification email</a>
-    </div>
+      <div class="data-notice">
+        <strong>How we use your data:</strong> UpQ requests read/write access to Google Tasks
+        (<code>auth/tasks</code> scope) and Microsoft To&nbsp;Do (<code>Tasks.ReadWrite</code>) solely
+        to display, create, and complete tasks at your explicit request. We never store your task content,
+        sell your data, or share it with third parties for any purpose unrelated to providing this service.
+        <br><br>
+        <a href="/privacy.html">Read our full Privacy Policy →</a>
+      </div>
 
-    <!-- Register form (hidden initially) -->
-    <form id="register-form" style="display:none">
-      <div class="form-group">
-        <label for="reg-username">Username</label>
-        <input id="reg-username" type="text" autocomplete="username" required>
-      </div>
-      <div class="form-group">
-        <label for="reg-password">Password</label>
-        <input id="reg-password" type="password" autocomplete="new-password" required>
-      </div>
-      <div class="form-group">
-        <label for="reg-email">Email</label>
-        <input id="reg-email" type="email" autocomplete="email" required>
-      </div>
-      <button type="submit" class="btn btn-primary">Create Account</button>
-    </form>
-
-    <!-- Post-registration confirmation (shown after successful registration) -->
-    <div id="check-email-notice" style="display:none;text-align:center">
-      <div style="width:56px;height:56px;background:#6fb768;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem">
-        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" width="28" height="28">
-          <path d="M4 8h24v16H4z" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
-          <path d="M4 8l12 10L28 8" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <h2 style="color:#182471;font-size:1.2rem;margin:0 0 .5rem">Check your email</h2>
-      <p style="color:#555;font-size:.93rem;line-height:1.6;margin:0 0 1rem">
-        We sent a verification link to <strong id="reg-email-display"></strong>.
-        Click the link in that email to complete your registration.
-      </p>
-      <p style="font-size:.8rem;color:#aaa">
-        Didn't receive it?
-        <a href="#" id="resend-after-reg-link" style="color:#182471;font-weight:600">Resend the email</a>
-      </p>
-    </div>
-
-    <div class="toggle-link" id="toggle-area">
-      <span id="toggle-text">Don't have an account?</span>
-      <a id="toggle-link" onclick="toggleForm()">Register</a>
+      <a href="/login.html" class="landing-cta">Sign In to UpQ</a>
     </div>
   </div>
-  </div>
 
-  <script>
-    // Redirect to dashboard if already logged in
-    if (localStorage.getItem('token')) {
-      window.location.href = '/lists.html';
-    }
-
-    let showingLogin = true;
-    let lastUsername = '';
-
-    function toggleForm() {
-      showingLogin = !showingLogin;
-      document.getElementById('login-form').style.display            = showingLogin ? '' : 'none';
-      document.getElementById('forgot-link').style.display            = showingLogin ? '' : 'none';
-      document.getElementById('register-form').style.display          = showingLogin ? 'none' : '';
-      document.getElementById('check-email-notice').style.display     = 'none';
-      document.getElementById('unverified-notice').style.display      = 'none';
-      document.getElementById('forgot-password-panel').style.display  = 'none';
-      document.getElementById('forgot-sent-notice').style.display     = 'none';
-      document.getElementById('form-title').textContent               = showingLogin ? 'Sign In' : 'Create Account';
-      document.getElementById('toggle-text').textContent              = showingLogin ? "Don't have an account?" : 'Already have an account?';
-      document.getElementById('toggle-link').textContent              = showingLogin ? 'Register' : 'Sign In';
-      document.getElementById('toggle-area').style.display            = '';
-      hideError();
-    }
-
-    function showError(msg) {
-      const el = document.getElementById('error-msg');
-      el.textContent = msg;
-      el.style.display = 'block';
-    }
-
-    function hideError() {
-      document.getElementById('error-msg').style.display = 'none';
-    }
-
-    // ── Login ────────────────────────────────────────────────────
-    document.getElementById('login-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      hideError();
-      document.getElementById('unverified-notice').style.display = 'none';
-      const username = document.getElementById('login-username').value.trim();
-      const password = document.getElementById('login-password').value;
-      lastUsername = username;
-      try {
-        const res  = await fetch('/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          if (data.code === 'EMAIL_NOT_VERIFIED') {
-            document.getElementById('unverified-notice').style.display = '';
-          } else {
-            showError(data.error || 'Login failed');
-          }
-          return;
-        }
-        localStorage.setItem('token', data.token);
-        window.location.href = '/lists.html';
-      } catch {
-        showError('Could not reach the server. Is it running?');
-      }
-    });
-
-    // ── Resend from login page ───────────────────────────────────
-    document.getElementById('resend-link').addEventListener('click', async (e) => {
-      e.preventDefault();
-      await doResend(lastUsername, e.target);
-    });
-
-    // ── Register ─────────────────────────────────────────────────
-    document.getElementById('register-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      hideError();
-      const username = document.getElementById('reg-username').value.trim();
-      const password = document.getElementById('reg-password').value;
-      const email    = document.getElementById('reg-email').value.trim();
-      lastUsername   = username;
-      try {
-        const res  = await fetch('/auth/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password, email })
-        });
-        const data = await res.json();
-        if (!res.ok) { showError(data.error || 'Registration failed'); return; }
-
-        // Show the "check your email" panel
-        document.getElementById('register-form').style.display      = 'none';
-        document.getElementById('toggle-area').style.display        = 'none';
-        document.getElementById('check-email-notice').style.display = '';
-        document.getElementById('reg-email-display').textContent    = email;
-        document.getElementById('form-title').textContent           = 'Account Created';
-      } catch {
-        showError('Could not reach the server. Is it running?');
-      }
-    });
-
-    // ── Resend from post-register panel ──────────────────────────
-    document.getElementById('resend-after-reg-link').addEventListener('click', async (e) => {
-      e.preventDefault();
-      await doResend(lastUsername, e.target);
-    });
-
-    // ── Forgot password ──────────────────────────────────────────
-    function showForgotPassword(e) {
-      e.preventDefault();
-      hideError();
-      document.getElementById('login-form').style.display          = 'none';
-      document.getElementById('forgot-link').style.display          = 'none';
-      document.getElementById('unverified-notice').style.display    = 'none';
-      document.getElementById('forgot-password-panel').style.display = '';
-      document.getElementById('forgot-sent-notice').style.display   = 'none';
-      document.getElementById('toggle-area').style.display          = 'none';
-      document.getElementById('form-title').textContent             = 'Reset Password';
-    }
-
-    function showLogin(e) {
-      e.preventDefault();
-      hideError();
-      document.getElementById('login-form').style.display            = '';
-      document.getElementById('forgot-link').style.display            = '';
-      document.getElementById('forgot-password-panel').style.display  = 'none';
-      document.getElementById('forgot-sent-notice').style.display     = 'none';
-      document.getElementById('unverified-notice').style.display      = 'none';
-      document.getElementById('toggle-area').style.display            = '';
-      document.getElementById('form-title').textContent               = 'Sign In';
-      showingLogin = true;
-    }
-
-    async function doForgotPassword(e) {
-      e.preventDefault();
-      hideError();
-      const email = document.getElementById('forgot-email').value.trim();
-      if (!email) { showError('Please enter your email address.'); return; }
-      const btn = e.target;
-      btn.disabled = true;
-      btn.textContent = 'Sending…';
-      try {
-        await fetch('/auth/forgot-password', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email })
-        });
-        // Always show the confirmation panel regardless of whether the email matched
-        document.getElementById('forgot-password-panel').style.display = 'none';
-        document.getElementById('forgot-sent-notice').style.display    = '';
-      } catch {
-        showError('Could not reach the server. Is it running?');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Send Reset Link';
-      }
-    }
-
-    // ── Shared resend helper ─────────────────────────────────────
-    async function doResend(username, linkEl) {
-      if (!username) {
-        showError('Please enter your username and try again.');
-        return;
-      }
-      const originalText = linkEl.textContent;
-      linkEl.textContent = 'Sending…';
-      try {
-        const res  = await fetch('/auth/resend-verification', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username })
-        });
-        const data = await res.json();
-        if (!res.ok) { showError(data.error || 'Could not resend email.'); }
-        else         { showError(data.message); document.getElementById('error-msg').style.color = '#2e7d32'; }
-      } catch {
-        showError('Could not reach the server. Is it running?');
-      } finally {
-        linkEl.textContent = originalText;
-      }
-    }
-  </script>
-  <footer class="site-footer">Copyright 2026, handsbreadth LLC &nbsp;·&nbsp; <a href="/support.html" style="color:rgba(255,255,255,.7);text-decoration:none" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,.7)'">Support</a></footer>
+  <footer class="site-footer">
+    Copyright 2026, handsbreadth LLC
+    &nbsp;·&nbsp;
+    <a href="/privacy.html" style="color:rgba(255,255,255,.7);text-decoration:none" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,.7)'">Privacy Policy</a>
+    &nbsp;·&nbsp;
+    <a href="/terms.html" style="color:rgba(255,255,255,.7);text-decoration:none" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,.7)'">Terms</a>
+    &nbsp;·&nbsp;
+    <a href="/support.html" style="color:rgba(255,255,255,.7);text-decoration:none" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,.7)'">Support</a>
+  </footer>
 </body>
 </html>
