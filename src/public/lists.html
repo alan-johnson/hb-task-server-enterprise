@@ -56,7 +56,7 @@
 
   <script>
     const token = localStorage.getItem('token');
-    if (!token) { window.location.href = '/'; }
+    if (!token) { window.location.href = '/login.html'; }
 
     const PROVIDERS = {
       microsoft: { label: 'Microsoft',       icon: '🟦', color: '#1565c0', bg: '#e3f2fd' },
@@ -74,7 +74,7 @@
 
     function logout() {
       localStorage.clear();
-      window.location.href = '/';
+      window.location.href = '/login.html';
     }
 
     function showBanner(msg, type = 'success') {
