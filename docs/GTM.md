@@ -14,17 +14,17 @@ Both APIs require an **app publishing/verification process** before real users c
 
 **Before production:**
 1. ~~**Publish the OAuth app**~~ ✅ **Done** — app is now **In production**
-2. **Submit for verification** — Google Tasks uses sensitive scopes (`auth/tasks`), which requires Google's OAuth verification review. This can take **several weeks**.
-   - **2a. Prepare a privacy policy** — must be publicly accessible at a URL on your domain (e.g. `https://handsbreadth.com/privacy`)
+~~2. **Submit for verification** — Google Tasks uses sensitive scopes (`auth/tasks`), which requires Google's OAuth verification review. This can take **several weeks**.~~ ✅ **Done**
+   - ~~**2a. Prepare a privacy policy** — must be publicly accessible at a URL on your domain (e.g. `https://handsbreadth.com/privacy`)~~
      - [Google's guidance on privacy policy requirements](https://support.google.com/cloud/answer/9110914)
 ~~    - **2b. Verify domain ownership** — prove you own `handsbreadth.com` in Google Search Console ~~
      - [Google Search Console](https://search.google.com/search-console)
-   - **2c. Open the OAuth consent screen** in Google Cloud Console and click "Prepare for verification"
+   - ~~**2c. Open the OAuth consent screen** in Google Cloud Console and click "Prepare for verification"~~
      - [Google Cloud Console → APIs & Services → OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent)
-   - **2d. Fill out the verification form** — provide app homepage, privacy policy URL, and justification for each sensitive scope (`auth/tasks`)
+   - ~~**2d. Fill out the verification form** — provide app homepage, privacy policy URL, and justification for each sensitive scope (`auth/tasks`)~~
      - [OAuth app verification FAQ](https://support.google.com/cloud/answer/9110914)
-   - **2e. Submit** — Google will email updates; review typically takes 2–6 weeks
-3. Without verification, external users see an interstitial warning and must click through to proceed.
+   - ~~**2e. Submit** — Google will email updates; review typically takes 2–6 weeks~~
+~~3. Without verification, external users see an interstitial warning and must click through to proceed.~~ ✅ **Resolved** — verification approved
 
 ---
 
