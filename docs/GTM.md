@@ -38,7 +38,7 @@ Your app registration in Azure Entra ID (formerly Azure AD) starts as unverified
    - **2a. Enroll in Microsoft AI Cloud Partner Program (formerly MPN)** — create or sign in to a Partner Center account
      - [Microsoft Partner Center](https://partner.microsoft.com/en-us/dashboard/account/v3/enrollment/introduction/azureactivedirectory)
    - **2b. Get a verified MPN ID** — Partner Center will issue a Partner ID (MPN ID) once enrollment is complete
-     - [Partner Center overview](https://partner.microsoft.com/en-us/dashboard/home)
+     - [Partner Center overview]()https://partner.microsoft.com/en-us/dashboard/home
    - **2c. Link your MPN account to your Azure tenant** — in Partner Center, go to Settings → Account settings → Identifiers and associate your Entra tenant
      - [Linking guidance](https://learn.microsoft.com/en-us/partner-center/account-settings/connect-with-an-indirect-provider)
    - **2d. Start publisher verification in the Azure portal** — open the app registration and click "Add a verified publisher"
