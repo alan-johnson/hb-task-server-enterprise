@@ -820,15 +820,20 @@ app.get('/api/tasks/unified', authService.requireAuth(), async (req, res) => {
   }
 
   // Determine which providers are connected for this user
-  const providerNames = [];
+  const providerNames  = [];
+  const providerErrors = [];
+
   for (const p of ['microsoft', 'google']) {
     const creds = await userService.getCredentials(userId, p);
     if (creds) providerNames.push(p);
   }
-  if (bridgeServer.isConnected(userId)) providerNames.push('apple');
+  if (bridgeServer.isConnected(userId)) {
+    providerNames.push('apple');
+  } else if (await userService.hasBridgeApiKey(userId)) {
+    providerErrors.push({ provider: 'apple', error: 'Bridge not connected' });
+  }
 
-  const allTasks      = [];
-  const providerErrors = [];
+  const allTasks = [];
 
   await Promise.all(providerNames.map(async (providerName) => {
     try {
