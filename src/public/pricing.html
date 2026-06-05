@@ -206,7 +206,7 @@
     </button>
     <div class="trial-note" id="trial-note" style="display:none">Credit card required. You won't be charged until after your trial ends.</div>
     <p class="already-subscribed">
-      Already subscribed? <a href="/lists.html">Go to your tasks</a>
+      Already subscribed? <a href="/all-tasks.html">Go to your tasks</a>
     </p>
   </div>
   </div>
@@ -226,7 +226,7 @@
     // If already active, skip straight to the app
     fetch('/billing/status', { headers: { 'Authorization': `Bearer ${token}` } })
       .then(r => r.json())
-      .then(d => { if (d.subscriptionStatus === 'active') window.location.href = '/lists.html'; })
+      .then(d => { if (d.subscriptionStatus === 'active') window.location.href = '/all-tasks.html'; })
       .catch(() => {});
 
     let selectedPlan = 'annual';
