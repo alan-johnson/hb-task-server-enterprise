@@ -128,18 +128,18 @@
           </div>
         </div>
 
-        <!-- Not Now -->
+        <!-- Next -->
         <div>
-          <div style="font-weight:600;margin-bottom:.5rem">Not Now</div>
+          <div style="font-weight:600;margin-bottom:.5rem">Next</div>
           <div class="form-group" style="margin-bottom:.5rem">
-            <label for="not-now-label">Label</label>
-            <input id="not-now-label" type="text">
+            <label for="next-label">Label</label>
+            <input id="next-label" type="text">
           </div>
           <div style="display:flex;gap:1rem;flex-wrap:wrap;font-size:.9rem">
-            <label><input type="checkbox" id="notnow-future">   Match tasks with future due dates</label>
-            <label><input type="checkbox" id="notnow-p-high">   High priority</label>
-            <label><input type="checkbox" id="notnow-p-normal"> Normal priority</label>
-            <label><input type="checkbox" id="notnow-p-low">    Low priority</label>
+            <label><input type="checkbox" id="next-future">   Match tasks with future due dates</label>
+            <label><input type="checkbox" id="next-p-high">   High priority</label>
+            <label><input type="checkbox" id="next-p-normal"> Normal priority</label>
+            <label><input type="checkbox" id="next-p-low">    Low priority</label>
           </div>
         </div>
 
@@ -484,19 +484,19 @@
     }
 
     function populateEditor(rules) {
-      document.getElementById('now-label').value      = rules.now.label      || 'Now';
-      document.getElementById('not-now-label').value  = rules.not_now.label  || 'Not Now';
-      document.getElementById('later-label').value    = rules.later.label    || 'Later';
+      document.getElementById('now-label').value    = rules.now.label   || 'Now';
+      document.getElementById('next-label').value   = rules.next.label  || 'Next';
+      document.getElementById('later-label').value  = rules.later.label || 'Later';
 
       document.getElementById('now-overdue').checked   = !!rules.now.overdue;
       document.getElementById('now-p-high').checked    = !!(rules.now.priorities || []).includes('high');
       document.getElementById('now-p-normal').checked  = !!(rules.now.priorities || []).includes('normal');
       document.getElementById('now-p-low').checked     = !!(rules.now.priorities || []).includes('low');
 
-      document.getElementById('notnow-future').checked   = !!rules.not_now.future_due;
-      document.getElementById('notnow-p-high').checked   = !!(rules.not_now.priorities || []).includes('high');
-      document.getElementById('notnow-p-normal').checked = !!(rules.not_now.priorities || []).includes('normal');
-      document.getElementById('notnow-p-low').checked    = !!(rules.not_now.priorities || []).includes('low');
+      document.getElementById('next-future').checked   = !!rules.next.future_due;
+      document.getElementById('next-p-high').checked   = !!(rules.next.priorities || []).includes('high');
+      document.getElementById('next-p-normal').checked = !!(rules.next.priorities || []).includes('normal');
+      document.getElementById('next-p-low').checked    = !!(rules.next.priorities || []).includes('low');
     }
 
     function toggleClassificationEditor() {
@@ -505,23 +505,23 @@
     }
 
     async function saveClassificationRules() {
-      const nowPriorities    = [];
-      const notNowPriorities = [];
-      if (document.getElementById('now-p-high').checked)    nowPriorities.push('high');
-      if (document.getElementById('now-p-normal').checked)  nowPriorities.push('normal');
-      if (document.getElementById('now-p-low').checked)     nowPriorities.push('low');
-      if (document.getElementById('notnow-p-high').checked)   notNowPriorities.push('high');
-      if (document.getElementById('notnow-p-normal').checked) notNowPriorities.push('normal');
-      if (document.getElementById('notnow-p-low').checked)    notNowPriorities.push('low');
+      const nowPriorities  = [];
+      const nextPriorities = [];
+      if (document.getElementById('now-p-high').checked)   nowPriorities.push('high');
+      if (document.getElementById('now-p-normal').checked) nowPriorities.push('normal');
+      if (document.getElementById('now-p-low').checked)    nowPriorities.push('low');
+      if (document.getElementById('next-p-high').checked)   nextPriorities.push('high');
+      if (document.getElementById('next-p-normal').checked) nextPriorities.push('normal');
+      if (document.getElementById('next-p-low').checked)    nextPriorities.push('low');
 
       const rules = {
-        now:     { label: document.getElementById('now-label').value.trim()     || 'Now',
-                   overdue: document.getElementById('now-overdue').checked,
-                   priorities: nowPriorities },
-        not_now: { label: document.getElementById('not-now-label').value.trim() || 'Not Now',
-                   future_due: document.getElementById('notnow-future').checked,
-                   priorities: notNowPriorities },
-        later:   { label: document.getElementById('later-label').value.trim()   || 'Later' }
+        now:   { label: document.getElementById('now-label').value.trim()   || 'Now',
+                 overdue: document.getElementById('now-overdue').checked,
+                 priorities: nowPriorities },
+        next:  { label: document.getElementById('next-label').value.trim()  || 'Next',
+                 future_due: document.getElementById('next-future').checked,
+                 priorities: nextPriorities },
+        later: { label: document.getElementById('later-label').value.trim() || 'Later' }
       };
 
       try {
@@ -694,10 +694,10 @@
         `overdue = ${!!r.now.overdue}`,
         priorities(r.now.priorities),
         ``,
-        `[not_now]`,
-        `label = "${r.not_now.label || 'Not Now'}"`,
-        `future_due = ${!!r.not_now.future_due}`,
-        priorities(r.not_now.priorities),
+        `[next]`,
+        `label = "${r.next.label || 'Next'}"`,
+        `future_due = ${!!r.next.future_due}`,
+        priorities(r.next.priorities),
         ``,
         `[later]`,
         `label = "${r.later.label || 'Later'}"`,
@@ -747,7 +747,7 @@
       const prio = (arr) => arr && arr.length ? arr.join(', ') : 'none';
       document.getElementById('import-preview').innerHTML = `
         <div style="margin-bottom:.6rem">${fmt('Now',     [`Label: <em>${escHtml(rules.now.label)}</em>`,     `Overdue: ${rules.now.overdue ? 'yes' : 'no'}`,     `Priority: ${prio(rules.now.priorities)}`])}</div>
-        <div style="margin-bottom:.6rem">${fmt('Not Now', [`Label: <em>${escHtml(rules.not_now.label)}</em>`, `Future due: ${rules.not_now.future_due ? 'yes' : 'no'}`, `Priority: ${prio(rules.not_now.priorities)}`])}</div>
+        <div style="margin-bottom:.6rem">${fmt('Next',    [`Label: <em>${escHtml(rules.next.label)}</em>`,    `Future due: ${rules.next.future_due ? 'yes' : 'no'}`,    `Priority: ${prio(rules.next.priorities)}`])}</div>
         <div>${fmt('Later',   [`Label: <em>${escHtml(rules.later.label)}</em>`])}</div>
       `;
       document.getElementById('import-modal').style.display = 'flex';

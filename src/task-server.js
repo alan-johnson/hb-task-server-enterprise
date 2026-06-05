@@ -36,9 +36,9 @@ const { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail, 
 
 // Load classification config from TOML (once at startup)
 const DEFAULT_CLASSIFICATION = {
-  now:     { label: 'Now',     overdue: true, priorities: ['high'] },
-  not_now: { label: 'Not Now', future_due: true, priorities: ['normal'] },
-  later:   { label: 'Later' }
+  now:   { label: 'Now',   overdue: true, priorities: ['high'] },
+  next:  { label: 'Next',  future_due: true, priorities: ['normal'] },
+  later: { label: 'Later' }
 };
 
 function loadClassificationConfig() {
@@ -81,9 +81,9 @@ function classifyTask(task, rules) {
                    (rules.now.priorities && rules.now.priorities.includes(priority));
   if (nowMatch) return 'now';
 
-  const notNowMatch = (rules.not_now.future_due && isFuture) ||
-                      (rules.not_now.priorities && rules.not_now.priorities.includes(priority));
-  if (notNowMatch) return 'not_now';
+  const nextMatch = (rules.next.future_due && isFuture) ||
+                    (rules.next.priorities && rules.next.priorities.includes(priority));
+  if (nextMatch) return 'next';
 
   return 'later';
 }
@@ -744,11 +744,11 @@ app.get('/auth/me/classification', authService.requireAuth(), async (req, res) =
 // Save custom rules for this user
 app.put('/auth/me/classification', authService.requireAuth(), async (req, res) => {
   try {
-    const { now, not_now, later } = req.body;
-    if (!now || !not_now || !later) {
-      return res.status(400).json({ error: 'now, not_now, and later are required' });
+    const { now, next, later } = req.body;
+    if (!now || !next || !later) {
+      return res.status(400).json({ error: 'now, next, and later are required' });
     }
-    const rules = { now, not_now, later };
+    const rules = { now, next, later };
     await userService.updateClassificationRules(req.user.userId, rules);
     cache.deletePrefix(`tasks:${req.user.userId}:`);
     cache.delete(`unified:${req.user.userId}`);
@@ -783,14 +783,14 @@ app.post('/auth/me/classification/parse', authService.requireAuth(), async (req,
     } catch (e) {
       return res.status(400).json({ error: `TOML parse error: ${e.message}` });
     }
-    const { now, not_now, later } = parsed;
-    if (!now || !not_now || !later) {
-      return res.status(400).json({ error: 'TOML must contain [now], [not_now], and [later] sections' });
+    const { now, next, later } = parsed;
+    if (!now || !next || !later) {
+      return res.status(400).json({ error: 'TOML must contain [now], [next], and [later] sections' });
     }
     const rules = {
-      now:     { label: String(now.label     || 'Now'),     overdue:     !!now.overdue,     priorities: Array.isArray(now.priorities)     ? now.priorities     : [] },
-      not_now: { label: String(not_now.label || 'Not Now'), future_due:  !!not_now.future_due, priorities: Array.isArray(not_now.priorities) ? not_now.priorities : [] },
-      later:   { label: String(later.label   || 'Later') }
+      now:   { label: String(now.label   || 'Now'),   overdue:    !!now.overdue,    priorities: Array.isArray(now.priorities)   ? now.priorities   : [] },
+      next:  { label: String(next.label  || 'Next'),  future_due: !!next.future_due, priorities: Array.isArray(next.priorities)  ? next.priorities  : [] },
+      later: { label: String(later.label || 'Later') }
     };
     res.json({ rules });
   } catch (error) {
@@ -802,11 +802,22 @@ app.post('/auth/me/classification/parse', authService.requireAuth(), async (req,
 // Unified Task List (all providers, all lists)
 // ============================================
 
+const CLASSIFICATION_ORDER = { now: 0, next: 1, later: 2 };
+
 app.get('/api/tasks/unified', authService.requireAuth(), async (req, res) => {
   const userId = req.user.userId;
+  const sortByClassification = req.query.sort === 'classification';
   const cacheKey = `unified:${userId}`;
   const cached = cache.get(cacheKey);
-  if (cached) return res.json(cached);
+  if (cached) {
+    if (sortByClassification) {
+      const sorted = [...cached.tasks].sort((a, b) =>
+        (CLASSIFICATION_ORDER[a.classification] ?? 3) - (CLASSIFICATION_ORDER[b.classification] ?? 3)
+      );
+      return res.json({ ...cached, tasks: sorted });
+    }
+    return res.json(cached);
+  }
 
   // Determine which providers are connected for this user
   const providerNames = [];
@@ -845,6 +856,13 @@ app.get('/api/tasks/unified', authService.requireAuth(), async (req, res) => {
   const annotated = allTasks.map(t => ({ ...t, classification: classifyTask(t, rules) }));
   const result = { user: req.user.username, tasks: annotated };
   cache.set(cacheKey, result, TTL.tasks);
+
+  if (sortByClassification) {
+    const sorted = [...annotated].sort((a, b) =>
+      (CLASSIFICATION_ORDER[a.classification] ?? 3) - (CLASSIFICATION_ORDER[b.classification] ?? 3)
+    );
+    return res.json({ ...result, tasks: sorted });
+  }
   res.json(result);
 });
 
