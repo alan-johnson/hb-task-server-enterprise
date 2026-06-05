@@ -47,7 +47,7 @@
           <div class="filter-dropdown" id="filter-dropdown" role="menu">
             <button class="filter-option filter-option-active" data-filter="all"     onclick="setFilter('all')"    role="menuitem">All</button>
             <button class="filter-option"                      data-filter="Now"     onclick="setFilter('Now')"    role="menuitem">Now</button>
-            <button class="filter-option"                      data-filter="Not Now" onclick="setFilter('Not Now')"role="menuitem">Not Now</button>
+            <button class="filter-option"                      data-filter="next"    onclick="setFilter('next')"   role="menuitem">Next</button>
             <button class="filter-option"                      data-filter="Later"   onclick="setFilter('Later')"  role="menuitem">Later</button>
           </div>
         </div>
@@ -185,10 +185,10 @@
     // Display label for a bucket key
     function bucketLabel(key) {
       if (!classificationConfig) return key;
-      return { now: classificationConfig.now.label, not_now: classificationConfig.not_now.label, later: classificationConfig.later.label }[key] || key;
+      return { now: classificationConfig.now.label, next: classificationConfig.next.label, later: classificationConfig.later.label }[key] || key;
     }
 
-    // CSS class fragment for a bucket key ('not_now' → 'not-now')
+    // CSS class fragment for a bucket key (passthrough — 'now', 'next', 'later')
     function bucketCss(key) { return key.replace('_', '-'); }
 
     function toggleFilterDropdown() {
@@ -217,7 +217,7 @@
       document.getElementById('filter-dropdown').innerHTML = `
         <button class="filter-option filter-option-active" data-filter="all"     onclick="setFilter('all')"     role="menuitem">All</button>
         <button class="filter-option"                      data-filter="now"     onclick="setFilter('now')"     role="menuitem">${escHtml(cfg.now.label)}</button>
-        <button class="filter-option"                      data-filter="not_now" onclick="setFilter('not_now')" role="menuitem">${escHtml(cfg.not_now.label)}</button>
+        <button class="filter-option"                      data-filter="next"    onclick="setFilter('next')"    role="menuitem">${escHtml(cfg.next.label)}</button>
         <button class="filter-option"                      data-filter="later"   onclick="setFilter('later')"   role="menuitem">${escHtml(cfg.later.label)}</button>
       `;
     }
@@ -252,7 +252,7 @@
       if (!filtered.length && !(showingAll && completed.length)) {
         const msg = showingAll
           ? `No tasks in this list.<br><a href="#" onclick="openCreateModal();return false;">Add the first task.</a>`
-          : `No <strong>${activeFilter}</strong> tasks.`;
+          : `No <strong>${escHtml(bucketLabel(activeFilter))}</strong> tasks.`;
         container.innerHTML = `<div class="empty-state">${msg}</div>`;
         return;
       }
@@ -260,9 +260,9 @@
       let html = '';
 
       if (showingAll && filtered.length) {
-        const groups = { now: [], not_now: [], later: [] };
+        const groups = { now: [], next: [], later: [] };
         for (const t of filtered) groups[t.classification || 'later'].push(t);
-        for (const key of ['now', 'not_now', 'later']) {
+        for (const key of ['now', 'next', 'later']) {
           if (!groups[key].length) continue;
           const label = bucketLabel(key);
           html += `<div class="tasks-section-label tag-section-${bucketCss(key)}">${label} (${groups[key].length})</div>`;

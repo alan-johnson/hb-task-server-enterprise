@@ -720,19 +720,19 @@ body.dashboard {
   line-height: 1.4;
 }
 
-.tag-pill-now     { background: #ffe5e5; color: #c00; }
-.tag-pill-not-now { background: #fff3cd; color: #7a5800; }
-.tag-pill-later   { background: #ebebf0; color: #555; }
+.tag-pill-now   { background: #ffe5e5; color: #c00; }
+.tag-pill-next  { background: #fff3cd; color: #7a5800; }
+.tag-pill-later { background: #ebebf0; color: #555; }
 
 /* ── Card left-border accent by tag ── */
-.task-card-now     { border-left: 3px solid #ff3b30; padding-left: calc(1.25rem - 3px); }
-.task-card-not-now { border-left: 3px solid #ff9500; padding-left: calc(1.25rem - 3px); }
-.task-card-later   { border-left: 3px solid #c7c7c7; padding-left: calc(1.25rem - 3px); }
+.task-card-now   { border-left: 3px solid #ff3b30; padding-left: calc(1.25rem - 3px); }
+.task-card-next  { border-left: 3px solid #ff9500; padding-left: calc(1.25rem - 3px); }
+.task-card-later { border-left: 3px solid #c7c7c7; padding-left: calc(1.25rem - 3px); }
 
 /* ── Section label color accents ── */
-.tag-section-now     { color: #c00; }
-.tag-section-not-now { color: #7a5800; }
-.tag-section-later   { color: #555; }
+.tag-section-now   { color: #c00; }
+.tag-section-next  { color: #7a5800; }
+.tag-section-later { color: #555; }
 
 /* ── Priority select in modal ── */
 .modal-box select {
