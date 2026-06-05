@@ -56,6 +56,7 @@
     </div>
 
     <div id="banner" class="banner" style="display:none"></div>
+    <div id="provider-errors"></div>
 
     <div id="tasks-container">
       <div class="loading-state">
@@ -155,6 +156,15 @@
       el.className = `banner banner-${type}`;
       el.style.display = 'block';
       setTimeout(() => { el.style.display = 'none'; }, 5000);
+    }
+
+    function showCredentialError() {
+      const container = document.getElementById('provider-errors');
+      container.innerHTML = `
+        <div class="banner banner-warning" style="margin-bottom:.75rem">
+          <span><strong>${escHtml(p.label)}</strong> tasks could not be loaded — credentials may have expired. <a href="/settings.html">Reconnect in Settings →</a></span>
+          <button class="banner-dismiss" onclick="this.closest('.banner').remove()" aria-label="Dismiss">&#x2715;</button>
+        </div>`;
     }
 
     function escHtml(str) {
@@ -496,7 +506,11 @@
         const shown = showCompleted ? tasksData : tasksData.filter(t => !t.completed);
         renderTasks(shown);
       } catch (err) {
-        showBanner(err.message, 'error');
+        if (/credentials|invalid|unauthorized/i.test(err.message)) {
+          showCredentialError();
+        } else {
+          showBanner(err.message, 'error');
+        }
         document.getElementById('tasks-container').innerHTML =
           `<div class="empty-state">Could not load tasks.</div>`;
       }

@@ -827,7 +827,8 @@ app.get('/api/tasks/unified', authService.requireAuth(), async (req, res) => {
   }
   if (bridgeServer.isConnected(userId)) providerNames.push('apple');
 
-  const allTasks = [];
+  const allTasks      = [];
+  const providerErrors = [];
 
   await Promise.all(providerNames.map(async (providerName) => {
     try {
@@ -845,25 +846,33 @@ app.get('/api/tasks/unified', authService.requireAuth(), async (req, res) => {
           }
         } catch (err) {
           console.error(`unified: failed to load tasks for list ${list.id} (${providerName}):`, err.message);
+          if (!providerErrors.find(e => e.provider === providerName)) {
+            providerErrors.push({ provider: providerName, error: err.message });
+          }
         }
       }));
     } catch (err) {
       console.error(`unified: failed to initialize provider ${providerName} for user ${userId}:`, err.message);
+      providerErrors.push({ provider: providerName, error: err.message });
     }
   }));
 
-  const rules = await userService.getClassificationRules(userId) || classificationConfig;
+  const rules    = await userService.getClassificationRules(userId) || classificationConfig;
   const annotated = allTasks.map(t => ({ ...t, classification: classifyTask(t, rules) }));
-  const result = { user: req.user.username, tasks: annotated };
-  cache.set(cacheKey, result, TTL.tasks);
+  const result   = { user: req.user.username, tasks: annotated };
+
+  // Only cache complete results — partial results should retry on next request
+  if (providerErrors.length === 0) cache.set(cacheKey, result, TTL.tasks);
+
+  const response = providerErrors.length ? { ...result, providerErrors } : result;
 
   if (sortByClassification) {
     const sorted = [...annotated].sort((a, b) =>
       (CLASSIFICATION_ORDER[a.classification] ?? 3) - (CLASSIFICATION_ORDER[b.classification] ?? 3)
     );
-    return res.json({ ...result, tasks: sorted });
+    return res.json({ ...response, tasks: sorted });
   }
-  res.json(result);
+  res.json(response);
 });
 
 // ============================================
