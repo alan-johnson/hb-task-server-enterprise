@@ -252,6 +252,10 @@ body.dashboard {
 
 .banner-success { background: #eaf6e9; color: #3d7038; border: 1px solid #b8e0b6; }
 .banner-error   { background: #fff2f2; color: #c00; border: 1px solid #ffcccc; }
+.banner-warning { background: #fff8e6; color: #7a5300; border: 1px solid #f5cc7a; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.banner-warning a { color: inherit; font-weight: 600; }
+.banner-dismiss { background: none; border: none; cursor: pointer; font-size: 1.1rem; color: inherit; opacity: .55; padding: 0 .25rem; flex-shrink: 0; line-height: 1; }
+.banner-dismiss:hover { opacity: 1; }
 
 /* ── Lists page ── */
 .filter-bar {

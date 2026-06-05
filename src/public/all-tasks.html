@@ -79,6 +79,7 @@
     </div>
 
     <div id="banner" class="banner" style="display:none"></div>
+    <div id="provider-errors"></div>
 
     <div id="tasks-container">
       <div class="loading-state">
@@ -145,6 +146,24 @@
     }
 
     function taskById(id) { return tasksData.find(t => t.id === id); }
+
+    // ── Provider error banners ─────────────────────────────────
+
+    const PROVIDER_LABELS = {
+      microsoft: 'Microsoft Tasks',
+      google:    'Google Tasks',
+      apple:     'Apple Reminders'
+    };
+
+    function renderProviderErrors(errors) {
+      const container = document.getElementById('provider-errors');
+      container.innerHTML = errors.map(e => `
+        <div class="banner banner-warning" style="margin-bottom:.75rem">
+          <span><strong>${escHtml(PROVIDER_LABELS[e.provider] || e.provider)}</strong> could not be loaded — credentials may have expired. <a href="/settings.html">Reconnect in Settings →</a></span>
+          <button class="banner-dismiss" onclick="this.closest('.banner').remove()" aria-label="Dismiss">&#x2715;</button>
+        </div>
+      `).join('');
+    }
 
     // ── Classification helpers ──────────────────────────────────
 
@@ -359,6 +378,7 @@
 
         const data = await res.json();
         tasksData  = data.tasks || [];
+        if (data.providerErrors && data.providerErrors.length) renderProviderErrors(data.providerErrors);
         const shown = showCompleted ? tasksData : tasksData.filter(t => !t.completed);
         renderTasks(shown);
       } catch (err) {
