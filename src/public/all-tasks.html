@@ -157,12 +157,17 @@
 
     function renderProviderErrors(errors) {
       const container = document.getElementById('provider-errors');
-      container.innerHTML = errors.map(e => `
-        <div class="banner banner-warning" style="margin-bottom:.75rem">
-          <span><strong>${escHtml(PROVIDER_LABELS[e.provider] || e.provider)}</strong> could not be loaded — credentials may have expired. <a href="/settings.html">Reconnect in Settings →</a></span>
-          <button class="banner-dismiss" onclick="this.closest('.banner').remove()" aria-label="Dismiss">&#x2715;</button>
-        </div>
-      `).join('');
+      container.innerHTML = errors.map(e => {
+        const label = escHtml(PROVIDER_LABELS[e.provider] || e.provider);
+        const msg   = e.error === 'Bridge not connected'
+          ? `<strong>${label}</strong> is not connected — ensure the bridge app is running on your Mac. <a href="/settings.html">Check in Settings →</a>`
+          : `<strong>${label}</strong> could not be loaded — credentials may have expired. <a href="/settings.html">Reconnect in Settings →</a>`;
+        return `
+          <div class="banner banner-warning" style="margin-bottom:.75rem">
+            <span>${msg}</span>
+            <button class="banner-dismiss" onclick="this.closest('.banner').remove()" aria-label="Dismiss">&#x2715;</button>
+          </div>`;
+      }).join('');
     }
 
     // ── Classification helpers ──────────────────────────────────
