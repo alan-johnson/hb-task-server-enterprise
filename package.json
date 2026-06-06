@@ -1,6 +1,6 @@
 {
   "name": "hb-task-server",
-  "version": "0.1.0",
+  "version": "1.0.1",
   "description": "Handsbreadth Multi-User Unified Task Server — REST API for Microsoft Tasks, Google Tasks, and Apple Reminders",
   "main": "src/task-server.js",
   "scripts": {
