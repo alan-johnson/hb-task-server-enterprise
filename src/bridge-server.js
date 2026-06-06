@@ -90,6 +90,8 @@ class BridgeServer {
         clearTimeout(authTimeout);
 
         const resolvedUserId = await this._getUserIdByApiKey(msg.apiKey).catch(() => null);
+        if (ws.readyState !== WebSocket.OPEN) return;
+
         if (!resolvedUserId) {
           ws.send(JSON.stringify({ type: 'auth_error', error: 'Invalid API key' }));
           ws.close(4003, 'Invalid API key');
