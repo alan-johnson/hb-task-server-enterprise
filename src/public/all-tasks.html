@@ -37,7 +37,7 @@
 </head>
 <body class="dashboard">
   <header class="site-header">
-    <a href="/lists.html"><img src="/images/handsbreadth-logo-web.png" alt="handsbreadth"></a>
+    <a href="/all-tasks.html"><img src="/images/handsbreadth-logo-web.png" alt="handsbreadth"></a>
     <div style="display:flex;align-items:center;gap:.5rem">
       <img src="/images/UpQ-branding-image-web.png" alt="UpQ" style="height:40px;width:auto;border-radius:0">
       <div style="display:flex;flex-direction:column;line-height:1.15;font-size:.82rem;font-weight:600;color:#fff;letter-spacing:.01em;text-align:left">
@@ -54,7 +54,7 @@
         <div class="user-info" id="user-info">Loading…</div>
       </div>
       <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
-        <a href="/lists.html" class="btn btn-secondary btn-sm">Lists</a>
+        <a href="/lists.html" class="btn btn-secondary btn-sm">All Task Lists</a>
         <a href="/settings.html" class="btn btn-secondary btn-sm">Settings</a>
         <a href="/support.html" class="btn btn-secondary btn-sm">Support</a>
         <div class="filter-dropdown-wrap" id="filter-dropdown-wrap">
@@ -70,7 +70,7 @@
           <div class="filter-dropdown" id="filter-dropdown" role="menu">
             <button class="filter-option filter-option-active" data-filter="all"     onclick="setFilter('all')"     role="menuitem">All</button>
             <button class="filter-option"                      data-filter="now"     onclick="setFilter('now')"     role="menuitem">Now</button>
-            <button class="filter-option"                      data-filter="not_now" onclick="setFilter('not_now')" role="menuitem">Not Now</button>
+            <button class="filter-option"                      data-filter="next"    onclick="setFilter('next')"   role="menuitem">Next</button>
             <button class="filter-option"                      data-filter="later"   onclick="setFilter('later')"   role="menuitem">Later</button>
           </div>
         </div>
@@ -79,6 +79,7 @@
     </div>
 
     <div id="banner" class="banner" style="display:none"></div>
+    <div id="provider-errors"></div>
 
     <div id="tasks-container">
       <div class="loading-state">
@@ -146,11 +147,34 @@
 
     function taskById(id) { return tasksData.find(t => t.id === id); }
 
+    // ── Provider error banners ─────────────────────────────────
+
+    const PROVIDER_LABELS = {
+      microsoft: 'Microsoft Tasks',
+      google:    'Google Tasks',
+      apple:     'Apple Reminders'
+    };
+
+    function renderProviderErrors(errors) {
+      const container = document.getElementById('provider-errors');
+      container.innerHTML = errors.map(e => {
+        const label = escHtml(PROVIDER_LABELS[e.provider] || e.provider);
+        const msg   = e.error === 'Bridge not connected'
+          ? `<strong>${label}</strong> is not connected — ensure the bridge app is running on your Mac. <a href="/settings.html">Check in Settings →</a>`
+          : `<strong>${label}</strong> could not be loaded — credentials may have expired. <a href="/settings.html">Reconnect in Settings →</a>`;
+        return `
+          <div class="banner banner-warning" style="margin-bottom:.75rem">
+            <span>${msg}</span>
+            <button class="banner-dismiss" onclick="this.closest('.banner').remove()" aria-label="Dismiss">&#x2715;</button>
+          </div>`;
+      }).join('');
+    }
+
     // ── Classification helpers ──────────────────────────────────
 
     function bucketLabel(key) {
       if (!classificationConfig) return key;
-      return { now: classificationConfig.now.label, not_now: classificationConfig.not_now.label, later: classificationConfig.later.label }[key] || key;
+      return { now: classificationConfig.now.label, next: classificationConfig.next.label, later: classificationConfig.later.label }[key] || key;
     }
 
     function bucketCss(key) { return key.replace('_', '-'); }
@@ -181,7 +205,7 @@
       document.getElementById('filter-dropdown').innerHTML = `
         <button class="filter-option filter-option-active" data-filter="all"     onclick="setFilter('all')"     role="menuitem">All</button>
         <button class="filter-option"                      data-filter="now"     onclick="setFilter('now')"     role="menuitem">${escHtml(cfg.now.label)}</button>
-        <button class="filter-option"                      data-filter="not_now" onclick="setFilter('not_now')" role="menuitem">${escHtml(cfg.not_now.label)}</button>
+        <button class="filter-option"                      data-filter="next"    onclick="setFilter('next')"   role="menuitem">${escHtml(cfg.next.label)}</button>
         <button class="filter-option"                      data-filter="later"   onclick="setFilter('later')"   role="menuitem">${escHtml(cfg.later.label)}</button>
       `;
     }
@@ -223,9 +247,9 @@
       let html = '';
 
       if (showingAll && filtered.length) {
-        const groups = { now: [], not_now: [], later: [] };
+        const groups = { now: [], next: [], later: [] };
         for (const t of filtered) groups[t.classification || 'later'].push(t);
-        for (const key of ['now', 'not_now', 'later']) {
+        for (const key of ['now', 'next', 'later']) {
           if (!groups[key].length) continue;
           const label = bucketLabel(key);
           html += `<div class="tasks-section-label tag-section-${bucketCss(key)}">${label} (${groups[key].length})</div>`;
@@ -353,12 +377,13 @@
 
     async function loadTasks() {
       try {
-        const res = await fetch('/api/tasks/unified', { headers: authHeaders() });
+        const res = await fetch('/api/tasks/unified?sort=classification', { headers: authHeaders() });
         if (res.status === 401) { logout(); return; }
         if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Failed to load tasks'); }
 
         const data = await res.json();
         tasksData  = data.tasks || [];
+        if (data.providerErrors && data.providerErrors.length) renderProviderErrors(data.providerErrors);
         const shown = showCompleted ? tasksData : tasksData.filter(t => !t.completed);
         renderTasks(shown);
       } catch (err) {
