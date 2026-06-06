@@ -175,7 +175,7 @@
         const res = await fetch('/auth/providers/status', { headers: authHeaders() });
         const status = await res.json();
         const anyConnected = Object.values(status).some(Boolean);
-        window.location.href = anyConnected ? '/lists.html' : '/settings.html';
+        window.location.href = anyConnected ? '/all-tasks.html' : '/settings.html';
       } catch {
         window.location.href = '/settings.html';
       }

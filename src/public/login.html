@@ -120,7 +120,7 @@
   <script>
     // Redirect to dashboard if already logged in
     if (localStorage.getItem('token')) {
-      window.location.href = '/lists.html';
+      window.location.href = '/all-tasks.html';
     }
 
     let showingLogin = true;
@@ -176,7 +176,7 @@
           return;
         }
         localStorage.setItem('token', data.token);
-        window.location.href = '/lists.html';
+        window.location.href = '/all-tasks.html';
       } catch {
         showError('Could not reach the server. Is it running?');
       }
