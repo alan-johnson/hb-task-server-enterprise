@@ -378,7 +378,7 @@ app.post('/auth/resend-verification', async (req, res) => {
   try {
     const user = await userService.getUserByUsername(username);
     if (!user) return res.json({ message: 'If that account exists and is unverified, a new email has been sent.' });
-    if (user.emailVerified) return res.json({ message: 'That account is already verified. Please sign in.' });
+    if (user.emailVerified) return res.json({ message: 'If that account exists and is unverified, a new email has been sent.' });
 
     const verificationToken = await userService.createVerificationToken(user.userId);
     const baseUrl = process.env.WEB_URL || 'http://localhost';

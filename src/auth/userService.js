@@ -124,19 +124,25 @@ class UserService {
       [userId, provider, encrypt(credentials.accessToken || null), encrypt(credentials.refreshToken || null), updatedAt]
     );
 
-    const creds = {
-      accessToken:  credentials.accessToken  || null,
-      refreshToken: credentials.refreshToken || null,
+    await cache.set(`creds:${userId}:${provider}`, JSON.stringify({
+      accessToken:  encrypt(credentials.accessToken  || null),
+      refreshToken: encrypt(credentials.refreshToken || null),
       updatedAt,
-    };
-    await cache.set(`creds:${userId}:${provider}`, JSON.stringify(creds));
+    }));
   }
 
   // ---------- getCredentials ----------
 
   async getCredentials(userId, provider) {
     const cached = await cache.get(`creds:${userId}:${provider}`);
-    if (cached) return JSON.parse(cached);
+    if (cached) {
+      const c = JSON.parse(cached);
+      return {
+        accessToken:  decrypt(c.accessToken),
+        refreshToken: decrypt(c.refreshToken),
+        updatedAt:    c.updatedAt,
+      };
+    }
 
     const result = await pool.query(
       'SELECT access_token, refresh_token, updated_at FROM user_credentials WHERE user_id = ? AND provider = ?',
@@ -150,7 +156,11 @@ class UserService {
       refreshToken: decrypt(row.refresh_token),
       updatedAt:    new Date(row.updated_at).toISOString(),
     };
-    await cache.set(`creds:${userId}:${provider}`, JSON.stringify(creds));
+    await cache.set(`creds:${userId}:${provider}`, JSON.stringify({
+      accessToken:  encrypt(creds.accessToken),
+      refreshToken: encrypt(creds.refreshToken),
+      updatedAt:    creds.updatedAt,
+    }));
     return creds;
   }
 
