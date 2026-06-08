@@ -256,4 +256,214 @@ function escHtml(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-module.exports = { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail, verifySmtp };
+async function sendTrialEndingWarningEmail({ to, username, trialEndDate, daysRemaining, upgradeUrl }) {
+  const formattedDate = new Date(trialEndDate).toLocaleDateString('en-US', {
+    month: 'long', day: 'numeric', year: 'numeric',
+  });
+  const dayWord = daysRemaining === 1 ? 'day' : 'days';
+
+  if (!process.env.SMTP_HOST) {
+    console.warn(
+      `[emailService] SMTP not configured — skipping trial ending warning email.\n` +
+      `  Trial ending in ${daysRemaining} ${dayWord} for ${username} (${to})`
+    );
+    return;
+  }
+
+  const from = resolveFrom();
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f6fb;font-family:Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fb;padding:2rem 1rem">
+    <tr><td align="center">
+      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border-radius:14px;box-shadow:0 2px 14px rgba(24,36,113,.09);overflow:hidden">
+        <tr><td style="background:#182471;padding:1.5rem 2rem;text-align:center">
+          <span style="color:#fff;font-size:1.25rem;font-weight:700;letter-spacing:.01em">handsbreadth LLC</span>
+        </td></tr>
+        <tr><td style="padding:2rem">
+          <h1 style="color:#182471;font-size:1.35rem;margin:0 0 .75rem">Your free trial ends in ${daysRemaining} ${dayWord}</h1>
+          <p style="color:#444;font-size:.95rem;line-height:1.6;margin:0 0 1rem">
+            Hi <strong>${escHtml(username)}</strong>,
+          </p>
+          <p style="color:#444;font-size:.95rem;line-height:1.6;margin:0 0 1.5rem">
+            Your free trial of <strong>UpQ task server</strong> ends on <strong>${formattedDate}</strong>.
+            Subscribe now to keep uninterrupted access to all your tasks.
+          </p>
+          <div style="text-align:center;margin-bottom:1.5rem">
+            <a href="${upgradeUrl}"
+               style="background:#182471;color:#fff;padding:.85rem 2.25rem;border-radius:8px;
+                      text-decoration:none;font-weight:700;font-size:1rem;display:inline-block;
+                      letter-spacing:.01em">
+              Subscribe Now
+            </a>
+          </div>
+          <p style="font-size:.78rem;color:#aaa;line-height:1.5;margin:0">
+            If you have questions, visit our <a href="${upgradeUrl.replace('/pricing.html', '/support.html')}" style="color:#aaa">support page</a>.
+          </p>
+        </td></tr>
+        <tr><td style="background:#f4f6fb;padding:.9rem 2rem;text-align:center;font-size:.75rem;color:#bbb;border-top:1px solid #eef0f8">
+          handsbreadth LLC &nbsp;·&nbsp; All rights reserved
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  const text =
+    `Your free trial ends in ${daysRemaining} ${dayWord} — UpQ task server\n\n` +
+    `Hi ${username},\n\n` +
+    `Your free trial of UpQ task server ends on ${formattedDate}.\n` +
+    `Subscribe now to keep uninterrupted access to all your tasks:\n` +
+    `${upgradeUrl}\n\n` +
+    `handsbreadth LLC`;
+
+  const transporter = createTransporter();
+  await transporter.sendMail({
+    from,
+    to,
+    subject: `Your UpQ free trial ends in ${daysRemaining} ${dayWord}`,
+    html,
+    text,
+  });
+}
+
+async function sendPaymentFailedEmail({ to, username, updatePaymentUrl }) {
+  if (!process.env.SMTP_HOST) {
+    console.warn(
+      `[emailService] SMTP not configured — skipping payment failed email for ${username} (${to})`
+    );
+    return;
+  }
+
+  const from = resolveFrom();
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f6fb;font-family:Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fb;padding:2rem 1rem">
+    <tr><td align="center">
+      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border-radius:14px;box-shadow:0 2px 14px rgba(24,36,113,.09);overflow:hidden">
+        <tr><td style="background:#182471;padding:1.5rem 2rem;text-align:center">
+          <span style="color:#fff;font-size:1.25rem;font-weight:700;letter-spacing:.01em">handsbreadth LLC</span>
+        </td></tr>
+        <tr><td style="padding:2rem">
+          <h1 style="color:#c0392b;font-size:1.35rem;margin:0 0 .75rem">Payment failed</h1>
+          <p style="color:#444;font-size:.95rem;line-height:1.6;margin:0 0 1rem">
+            Hi <strong>${escHtml(username)}</strong>,
+          </p>
+          <p style="color:#444;font-size:.95rem;line-height:1.6;margin:0 0 1.5rem">
+            We were unable to process the payment for your <strong>UpQ task server</strong> subscription.
+            Please update your billing information to avoid losing access.
+          </p>
+          <div style="text-align:center;margin-bottom:1.5rem">
+            <a href="${updatePaymentUrl}"
+               style="background:#c0392b;color:#fff;padding:.85rem 2.25rem;border-radius:8px;
+                      text-decoration:none;font-weight:700;font-size:1rem;display:inline-block;
+                      letter-spacing:.01em">
+              Update Payment Info
+            </a>
+          </div>
+          <p style="font-size:.78rem;color:#aaa;line-height:1.5;margin:0">
+            If you believe this is an error, please <a href="${updatePaymentUrl.replace('/settings.html', '/support.html')}" style="color:#aaa">contact support</a>.
+          </p>
+        </td></tr>
+        <tr><td style="background:#f4f6fb;padding:.9rem 2rem;text-align:center;font-size:.75rem;color:#bbb;border-top:1px solid #eef0f8">
+          handsbreadth LLC &nbsp;·&nbsp; All rights reserved
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  const text =
+    `Payment failed — UpQ task server\n\n` +
+    `Hi ${username},\n\n` +
+    `We were unable to process the payment for your UpQ task server subscription.\n` +
+    `Please update your billing information to avoid losing access:\n` +
+    `${updatePaymentUrl}\n\n` +
+    `handsbreadth LLC`;
+
+  const transporter = createTransporter();
+  await transporter.sendMail({
+    from,
+    to,
+    subject: 'Action required: UpQ payment failed',
+    html,
+    text,
+  });
+}
+
+async function sendSubscriptionExpiredEmail({ to, username, resubscribeUrl }) {
+  if (!process.env.SMTP_HOST) {
+    console.warn(
+      `[emailService] SMTP not configured — skipping subscription expired email for ${username} (${to})`
+    );
+    return;
+  }
+
+  const from = resolveFrom();
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f6fb;font-family:Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fb;padding:2rem 1rem">
+    <tr><td align="center">
+      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border-radius:14px;box-shadow:0 2px 14px rgba(24,36,113,.09);overflow:hidden">
+        <tr><td style="background:#182471;padding:1.5rem 2rem;text-align:center">
+          <span style="color:#fff;font-size:1.25rem;font-weight:700;letter-spacing:.01em">handsbreadth LLC</span>
+        </td></tr>
+        <tr><td style="padding:2rem">
+          <h1 style="color:#182471;font-size:1.35rem;margin:0 0 .75rem">Your subscription has ended</h1>
+          <p style="color:#444;font-size:.95rem;line-height:1.6;margin:0 0 1rem">
+            Hi <strong>${escHtml(username)}</strong>,
+          </p>
+          <p style="color:#444;font-size:.95rem;line-height:1.6;margin:0 0 1.5rem">
+            Your <strong>UpQ task server</strong> subscription has ended. Subscribe again to restore
+            access to all your tasks and connected services.
+          </p>
+          <div style="text-align:center;margin-bottom:1.5rem">
+            <a href="${resubscribeUrl}"
+               style="background:#182471;color:#fff;padding:.85rem 2.25rem;border-radius:8px;
+                      text-decoration:none;font-weight:700;font-size:1rem;display:inline-block;
+                      letter-spacing:.01em">
+              Resubscribe
+            </a>
+          </div>
+          <p style="font-size:.78rem;color:#aaa;line-height:1.5;margin:0">
+            Your account and data are retained. You can resubscribe at any time.
+          </p>
+        </td></tr>
+        <tr><td style="background:#f4f6fb;padding:.9rem 2rem;text-align:center;font-size:.75rem;color:#bbb;border-top:1px solid #eef0f8">
+          handsbreadth LLC &nbsp;·&nbsp; All rights reserved
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  const text =
+    `Your UpQ subscription has ended\n\n` +
+    `Hi ${username},\n\n` +
+    `Your UpQ task server subscription has ended. Subscribe again to restore access:\n` +
+    `${resubscribeUrl}\n\n` +
+    `Your account and data are retained. You can resubscribe at any time.\n\n` +
+    `handsbreadth LLC`;
+
+  const transporter = createTransporter();
+  await transporter.sendMail({
+    from,
+    to,
+    subject: 'Your UpQ task server subscription has ended',
+    html,
+    text,
+  });
+}
+
+module.exports = { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail, verifySmtp, sendTrialEndingWarningEmail, sendPaymentFailedEmail, sendSubscriptionExpiredEmail };

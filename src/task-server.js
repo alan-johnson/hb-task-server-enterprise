@@ -32,7 +32,8 @@ const stripe = process.env.STRIPE_SECRET_KEY
   ? require('stripe')(process.env.STRIPE_SECRET_KEY)
   : null;
 
-const { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail, verifySmtp } = require('./emailService');
+const { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail, verifySmtp, sendTrialEndingWarningEmail, sendPaymentFailedEmail, sendSubscriptionExpiredEmail } = require('./emailService');
+const { runSubscriptionMaintenance } = require('./jobs/subscriptionMaintenance');
 
 // Load classification config from TOML (once at startup)
 const DEFAULT_CLASSIFICATION = {
@@ -141,25 +142,96 @@ app.post('/billing/webhook', express.raw({ type: 'application/json' }), async (r
   }
 
   try {
+    const baseUrl = process.env.WEB_URL || 'http://localhost';
+
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object;
       const userId = session.metadata?.userId;
-      if (userId) {
-        await userService.updateSubscription(userId, session.customer, 'active');
-        console.log(`Subscription activated for user ${userId}`);
+      if (userId && session.subscription) {
+        const sub = await stripe.subscriptions.retrieve(session.subscription);
+        const stripeToStatus = { trialing: 'trialing', active: 'active', past_due: 'past_due', unpaid: 'past_due', canceled: 'canceled', incomplete_expired: 'canceled' };
+        const status = stripeToStatus[sub.status] || 'active';
+        const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000) : null;
+        const trialEnd  = sub.trial_end          ? new Date(sub.trial_end * 1000)          : null;
+        await userService.updateSubscription(userId, session.customer, status, periodEnd, trialEnd);
+        console.log(`Subscription ${status} for user ${userId}`);
       }
+
+    } else if (event.type === 'customer.subscription.updated') {
+      const sub = event.data.object;
+      const stripeToStatus = { trialing: 'trialing', active: 'active', past_due: 'past_due', unpaid: 'past_due', canceled: 'canceled', incomplete_expired: 'canceled' };
+      const newStatus = stripeToStatus[sub.status] || sub.status;
+      const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000) : null;
+      const trialEnd  = sub.trial_end          ? new Date(sub.trial_end * 1000)          : null;
+      const user = await userService.getUserByStripeCustomerId(sub.customer);
+      if (user) {
+        await userService.updateSubscription(user.userId, sub.customer, newStatus, periodEnd, trialEnd);
+        console.log(`Subscription updated to ${newStatus} for customer ${sub.customer}`);
+        // Warn user when subscription is set to cancel at period end
+        if (sub.cancel_at_period_end && user.email) {
+          const endDate = periodEnd ? periodEnd.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'the end of your billing period';
+          const daysRemaining = periodEnd ? Math.max(1, Math.ceil((periodEnd - Date.now()) / (24 * 60 * 60 * 1000))) : null;
+          if (daysRemaining !== null) {
+            await sendTrialEndingWarningEmail({
+              to: user.email, username: user.username,
+              trialEndDate: periodEnd.toISOString(), daysRemaining,
+              upgradeUrl: `${baseUrl}/settings.html`,
+            }).catch(e => console.error('Webhook cancel-warning email error:', e.message));
+          }
+        }
+        // Alert user when payment fails and status transitions to past_due
+        if (newStatus === 'past_due' && user.email) {
+          await sendPaymentFailedEmail({
+            to: user.email, username: user.username,
+            updatePaymentUrl: `${baseUrl}/settings.html`,
+          }).catch(e => console.error('Webhook past_due email error:', e.message));
+        }
+      }
+
+    } else if (event.type === 'invoice.payment_failed') {
+      const invoice = event.data.object;
+      const user = await userService.getUserByStripeCustomerId(invoice.customer);
+      if (user) {
+        await userService.updateSubscription(user.userId, invoice.customer, 'past_due', user.subscriptionPeriodEnd ? new Date(user.subscriptionPeriodEnd) : null, user.trialEnd ? new Date(user.trialEnd) : null);
+        console.log(`Payment failed for customer ${invoice.customer}`);
+        if (user.email) {
+          await sendPaymentFailedEmail({
+            to: user.email, username: user.username,
+            updatePaymentUrl: `${baseUrl}/settings.html`,
+          }).catch(e => console.error('Webhook payment-failed email error:', e.message));
+        }
+      }
+
+    } else if (event.type === 'customer.subscription.trial_will_end') {
+      const sub = event.data.object;
+      const user = await userService.getUserByStripeCustomerId(sub.customer);
+      if (user && user.email) {
+        const trialEnd = sub.trial_end ? new Date(sub.trial_end * 1000) : null;
+        const daysRemaining = trialEnd ? Math.max(1, Math.ceil((trialEnd - Date.now()) / (24 * 60 * 60 * 1000))) : 3;
+        await sendTrialEndingWarningEmail({
+          to: user.email, username: user.username,
+          trialEndDate: trialEnd ? trialEnd.toISOString() : new Date().toISOString(),
+          daysRemaining,
+          upgradeUrl: `${baseUrl}/pricing.html`,
+        }).catch(e => console.error('Webhook trial_will_end email error:', e.message));
+        console.log(`Trial ending soon email sent to ${user.email}`);
+      }
+
     } else if (event.type === 'customer.subscription.deleted') {
-      const subscription = event.data.object;
-      const { pool } = require('./db/db');
-      const result = await pool.query(
-        'SELECT user_id FROM users WHERE stripe_customer_id = ?',
-        [subscription.customer]
-      );
-      if (result.rows[0]) {
-        await userService.updateSubscription(result.rows[0].user_id, subscription.customer, 'canceled');
-        console.log(`Subscription canceled for customer ${subscription.customer}`);
+      const sub = event.data.object;
+      const user = await userService.getUserByStripeCustomerId(sub.customer);
+      if (user) {
+        await userService.updateSubscription(user.userId, sub.customer, 'canceled', null, null);
+        console.log(`Subscription canceled for customer ${sub.customer}`);
+        if (user.email) {
+          await sendSubscriptionExpiredEmail({
+            to: user.email, username: user.username,
+            resubscribeUrl: `${baseUrl}/pricing.html`,
+          }).catch(e => console.error('Webhook subscription-deleted email error:', e.message));
+        }
       }
     }
+
     res.json({ received: true });
   } catch (err) {
     console.error('Webhook handler error:', err.message);
@@ -173,10 +245,19 @@ app.use(bodyParser.json());
 const authService = new AuthService(process.env.JWT_SECRET);
 const userService = new UserService(process.env.DATA_DIR || './data');
 
+// Initialize DB schema/migrations before accepting any connections
 userService.initialize().then(() => {
   console.log('User service initialized');
+  httpServer.listen(API_PORT, () => {
+    console.log(`Task API service running on http://localhost:${API_PORT}`);
+    console.log(`Default provider: ${process.env.DEFAULT_PROVIDER || 'microsoft'}`);
+    console.log(`CORS origin:      ${allowedOrigin}`);
+    console.log(`Bridge WebSocket: ws://localhost:${API_PORT}/bridge`);
+    verifySmtp();
+  });
 }).catch(err => {
-  console.error('Failed to initialize user service:', err);
+  console.error('Failed to initialize user service — server will not start:', err);
+  process.exit(1);
 });
 
 // Helper to get provider for the authenticated user
@@ -804,7 +885,7 @@ app.post('/auth/me/classification/parse', authService.requireAuth(), async (req,
 
 const CLASSIFICATION_ORDER = { now: 0, next: 1, later: 2 };
 
-app.get('/api/tasks/unified', authService.requireAuth(), async (req, res) => {
+app.get('/api/tasks/unified', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
   const userId = req.user.userId;
   const sortByClassification = req.query.sort === 'classification';
   const cacheKey = `unified:${userId}`;
@@ -887,7 +968,7 @@ app.get('/api/tasks/unified', authService.requireAuth(), async (req, res) => {
 // Returns lists from all connected providers in one call.
 // Response: { user, providers: [...], byProvider: { microsoft: [...], ... }, lists: [...] }
 // Each list in `lists` includes a `provider` field.
-app.get('/api/lists/all', authService.requireAuth(), async (req, res) => {
+app.get('/api/lists/all', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
   const userId = req.user.userId;
   const cacheKey = `lists:all:${userId}`;
   const cached = cache.get(cacheKey);
@@ -937,7 +1018,7 @@ app.get('/api/lists/all', authService.requireAuth(), async (req, res) => {
   res.json(result);
 });
 
-app.get('/api/lists', authService.requireAuth(), async (req, res) => {
+app.get('/api/lists', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
   try {
     const { provider, providerName } = getProviderForUser(req);
     const cacheKey = `lists:${req.user.userId}:${providerName}`;
@@ -954,7 +1035,7 @@ app.get('/api/lists', authService.requireAuth(), async (req, res) => {
   }
 });
 
-app.get('/api/lists/counts', authService.requireAuth(), async (req, res) => {
+app.get('/api/lists/counts', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
   try {
     const { provider, providerName } = getProviderForUser(req);
     const user = await userService.getUser(req.user.userId);
@@ -977,7 +1058,7 @@ app.get('/api/lists/counts', authService.requireAuth(), async (req, res) => {
 // Tasks Routes
 // ============================================
 
-app.get('/api/lists/:listId/tasks', authService.requireAuth(), async (req, res) => {
+app.get('/api/lists/:listId/tasks', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
   try {
     const { listId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
@@ -997,7 +1078,7 @@ app.get('/api/lists/:listId/tasks', authService.requireAuth(), async (req, res) 
   }
 });
 
-app.get('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), async (req, res) => {
+app.get('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
   try {
     const { listId, taskId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
@@ -1011,7 +1092,7 @@ app.get('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), async (re
   }
 });
 
-app.post('/api/lists/:listId/tasks', authService.requireAuth(), async (req, res) => {
+app.post('/api/lists/:listId/tasks', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
   try {
     const { listId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
@@ -1027,7 +1108,7 @@ app.post('/api/lists/:listId/tasks', authService.requireAuth(), async (req, res)
   }
 });
 
-app.patch('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), async (req, res) => {
+app.patch('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
   try {
     const { listId, taskId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
@@ -1042,7 +1123,7 @@ app.patch('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), async (
   }
 });
 
-app.patch('/api/lists/:listId/tasks/:taskId/complete', authService.requireAuth(), async (req, res) => {
+app.patch('/api/lists/:listId/tasks/:taskId/complete', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
   try {
     const { listId, taskId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
@@ -1058,7 +1139,7 @@ app.patch('/api/lists/:listId/tasks/:taskId/complete', authService.requireAuth()
   }
 });
 
-app.delete('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), async (req, res) => {
+app.delete('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
   try {
     const { listId, taskId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
@@ -1084,9 +1165,14 @@ app.get('/billing/status', authService.requireAuth(), async (req, res) => {
     const user = await userService.getUser(req.user.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const response = { subscriptionStatus: user.subscriptionStatus || 'none' };
+    const status = user.subscriptionStatus || 'none';
+    const response = {
+      subscriptionStatus:    status,
+      subscriptionPeriodEnd: user.subscriptionPeriodEnd || null,
+      trialEnd:              user.trialEnd              || null,
+    };
 
-    if (stripe && user.stripeCustomerId && user.subscriptionStatus === 'active') {
+    if (stripe && user.stripeCustomerId && status === 'active') {
       try {
         const subscriptions = await stripe.subscriptions.list({
           customer: user.stripeCustomerId,
@@ -1097,8 +1183,8 @@ app.get('/billing/status', authService.requireAuth(), async (req, res) => {
         if (subscriptions.data.length > 0) {
           const sub  = subscriptions.data[0];
           const price = sub.items.data[0]?.price;
-          response.plan             = price?.recurring?.interval === 'year' ? 'annual' : 'monthly';
-          response.currentPeriodEnd = new Date(sub.current_period_end * 1000).toISOString();
+          response.plan              = price?.recurring?.interval === 'year' ? 'annual' : 'monthly';
+          response.currentPeriodEnd  = new Date(sub.current_period_end * 1000).toISOString();
           response.cancelAtPeriodEnd = sub.cancel_at_period_end;
         }
       } catch (stripeErr) {
@@ -1338,10 +1424,8 @@ const httpServer = http.createServer(app);
 
 bridgeServer.attach(httpServer, (apiKey) => userService.getUserIdByBridgeApiKey(apiKey));
 
-httpServer.listen(API_PORT, () => {
-  console.log(`Task API service running on http://localhost:${API_PORT}`);
-  console.log(`Default provider: ${process.env.DEFAULT_PROVIDER || 'microsoft'}`);
-  console.log(`CORS origin:      ${allowedOrigin}`);
-  console.log(`Bridge WebSocket: ws://localhost:${API_PORT}/bridge`);
-  verifySmtp();
-});
+// Daily subscription maintenance — runs 60s after startup then every 24h
+setTimeout(() => {
+  runSubscriptionMaintenance();
+  setInterval(runSubscriptionMaintenance, 24 * 60 * 60 * 1000);
+}, 60_000);

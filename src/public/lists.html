@@ -37,6 +37,7 @@
       </div>
     </div>
 
+    <div id="subscription-warning" style="display:none"></div>
     <div id="banner" class="banner" style="display:none"></div>
 
     <!-- Provider filter tabs -->
@@ -83,6 +84,52 @@
       el.className = `banner banner-${type}`;
       el.style.display = 'block';
       setTimeout(() => { el.style.display = 'none'; }, 6000);
+    }
+
+    async function checkSubscriptionStatus() {
+      const DISMISSED_KEY = 'sub_warning_dismissed';
+      const dismissedAt = localStorage.getItem(DISMISSED_KEY);
+      if (dismissedAt && Date.now() - parseInt(dismissedAt, 10) < 24 * 60 * 60 * 1000) return;
+      try {
+        const r = await fetch('/billing/status', { headers: authHeaders() });
+        if (!r.ok) return;
+        const billing = await r.json();
+        const status = billing.subscriptionStatus;
+        const now = Date.now();
+        let msg = null; let actionUrl = null; let actionLabel = null;
+        if (status === 'past_due') {
+          msg = 'Payment failed — your subscription is past due.';
+          actionUrl = '/settings.html'; actionLabel = 'Update billing';
+        } else if (status === 'none' || status === 'canceled') {
+          const justActivated = parseInt(localStorage.getItem('sub_just_activated') || '0', 10);
+          if (Date.now() - justActivated < 5 * 60 * 1000) return; // webhook still in transit
+          window.location.href = '/pricing.html'; return;
+        } else if (status === 'trialing' && billing.trialEnd) {
+          const days = Math.max(0, Math.ceil((new Date(billing.trialEnd) - now) / 86400000));
+          if (days <= 14) {
+            msg = days === 0 ? 'Your free trial ends today.' : `Your free trial ends in ${days} day${days === 1 ? '' : 's'}.`;
+            actionUrl = '/pricing.html'; actionLabel = 'Subscribe now';
+          }
+        } else if (status === 'active' && billing.cancelAtPeriodEnd && billing.currentPeriodEnd) {
+          const days = Math.max(0, Math.ceil((new Date(billing.currentPeriodEnd) - now) / 86400000));
+          if (days <= 14) {
+            const endDate = new Date(billing.currentPeriodEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            msg = `Your subscription ends in ${days} day${days === 1 ? '' : 's'} (${endDate}).`;
+            actionUrl = '/settings.html'; actionLabel = 'Manage subscription';
+          }
+        }
+        if (!msg) return;
+        const el = document.getElementById('subscription-warning');
+        el.className = 'banner banner-warning';
+        el.innerHTML = `<span>${escHtml(msg)} <a href="${actionUrl}">${escHtml(actionLabel)}</a></span><button class="banner-dismiss" onclick="dismissSubWarning()" title="Dismiss">&#x2715;</button>`;
+        el.style.display = 'flex';
+      } catch (_) { /* silently ignore */ }
+    }
+
+    function dismissSubWarning() {
+      localStorage.setItem('sub_warning_dismissed', Date.now().toString());
+      const el = document.getElementById('subscription-warning');
+      if (el) el.style.display = 'none';
     }
 
     function setFilter(provider) {
@@ -153,6 +200,7 @@
     }
 
     async function init() {
+      checkSubscriptionStatus(); // non-blocking — banner appears when ready
       // Load user info
       try {
         const res = await fetch('/auth/me', { headers: authHeaders() });
@@ -166,15 +214,34 @@
 
       // Fetch all lists across all connected providers in one call
       let data;
-      try {
-        const res = await fetch('/api/lists/all', { headers: authHeaders() });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        data = await res.json();
-      } catch (err) {
-        showBanner('Failed to load lists: ' + err.message, 'error');
-        document.getElementById('lists-container').innerHTML =
-          `<div class="empty-state">Could not load lists.</div>`;
-        return;
+      const maxRetries = 5;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          const res = await fetch('/api/lists/all', { headers: authHeaders() });
+
+          if (res.status === 402) {
+            const justActivated = parseInt(localStorage.getItem('sub_just_activated') || '0', 10);
+            if (attempt < maxRetries && Date.now() - justActivated < 5 * 60 * 1000) {
+              document.getElementById('lists-container').innerHTML =
+                '<div class="loading-state"><div class="spinner"></div><div>Activating subscription…</div></div>';
+              await new Promise(r => setTimeout(r, 2000));
+              continue;
+            }
+            localStorage.removeItem('sub_just_activated');
+            window.location.href = '/pricing.html';
+            return;
+          }
+
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          localStorage.removeItem('sub_just_activated');
+          data = await res.json();
+          break;
+        } catch (err) {
+          showBanner('Failed to load lists: ' + err.message, 'error');
+          document.getElementById('lists-container').innerHTML =
+            `<div class="empty-state">Could not load lists.</div>`;
+          return;
+        }
       }
 
       connectedProviders = data.providers || [];

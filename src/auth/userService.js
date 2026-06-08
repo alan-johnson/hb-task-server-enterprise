@@ -36,6 +36,13 @@ class UserService {
     for (const stmt of statements) {
       await pool.query(stmt);
     }
+    // Idempotent migration: add subscription date columns if missing
+    const cols = await pool.query("SHOW COLUMNS FROM users LIKE 'subscription_period_end'");
+    if (cols.rows.length === 0) {
+      await pool.query('ALTER TABLE users ADD COLUMN subscription_period_end DATETIME(3)');
+      await pool.query('ALTER TABLE users ADD COLUMN trial_end DATETIME(3)');
+      await pool.query('ALTER TABLE users ADD COLUMN trial_warning_sent_at DATETIME(3)');
+    }
   }
 
   // ---------- register ----------
@@ -98,7 +105,7 @@ class UserService {
     }
 
     const result = await pool.query(
-      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed, stripe_customer_id, subscription_status, email_verified FROM users WHERE user_id = ?',
+      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed, stripe_customer_id, subscription_status, subscription_period_end, trial_end, trial_warning_sent_at, email_verified FROM users WHERE user_id = ?',
       [userId]
     );
     if (!result.rows[0]) return null;
@@ -107,7 +114,7 @@ class UserService {
     await cache.set(`user:id:${userId}`,             JSON.stringify(user));
     await cache.set(`user:name:${user.username}`,    JSON.stringify(user));
 
-    return { userId: user.userId, username: user.username, email: user.email, defaultProvider: user.defaultProvider, showCompleted: user.showCompleted, stripeCustomerId: user.stripeCustomerId, subscriptionStatus: user.subscriptionStatus };
+    return { userId: user.userId, username: user.username, email: user.email, defaultProvider: user.defaultProvider, showCompleted: user.showCompleted, stripeCustomerId: user.stripeCustomerId, subscriptionStatus: user.subscriptionStatus, subscriptionPeriodEnd: user.subscriptionPeriodEnd, trialEnd: user.trialEnd, trialWarningSentAt: user.trialWarningSentAt };
   }
 
   // ---------- storeCredentials ----------
@@ -287,7 +294,7 @@ class UserService {
     if (cached) return JSON.parse(cached);
 
     const result = await pool.query(
-      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed, stripe_customer_id, subscription_status, email_verified FROM users WHERE username = ?',
+      'SELECT user_id, username, email, password_hash, created_at, default_provider, show_completed, stripe_customer_id, subscription_status, subscription_period_end, trial_end, trial_warning_sent_at, email_verified FROM users WHERE username = ?',
       [username]
     );
     if (!result.rows[0]) return null;
@@ -385,28 +392,58 @@ class UserService {
 
   // ---------- subscription ----------
 
-  async updateSubscription(userId, stripeCustomerId, status) {
+  async updateSubscription(userId, stripeCustomerId, status, periodEnd = null, trialEnd = null) {
+    const periodEndVal = periodEnd ? toMySQL(periodEnd) : null;
+    const trialEndVal  = trialEnd  ? toMySQL(trialEnd)  : null;
     await pool.query(
-      'UPDATE users SET stripe_customer_id = ?, subscription_status = ? WHERE user_id = ?',
-      [stripeCustomerId, status, userId]
+      `UPDATE users SET
+         stripe_customer_id = ?,
+         subscription_status = ?,
+         subscription_period_end = ?,
+         trial_end = ?,
+         trial_warning_sent_at = CASE WHEN ? = 'trialing' THEN NULL ELSE trial_warning_sent_at END
+       WHERE user_id = ?`,
+      [stripeCustomerId, status, periodEndVal, trialEndVal, status, userId]
     );
     await cache.del(`user:id:${userId}`);
     const result = await pool.query('SELECT username FROM users WHERE user_id = ?', [userId]);
     if (result.rows[0]) await cache.del(`user:name:${result.rows[0].username}`);
   }
 
+  async getUserByStripeCustomerId(customerId) {
+    const result = await pool.query(
+      'SELECT user_id, username, email, subscription_status, subscription_period_end, trial_end, trial_warning_sent_at, stripe_customer_id FROM users WHERE stripe_customer_id = ?',
+      [customerId]
+    );
+    if (!result.rows[0]) return null;
+    const row = result.rows[0];
+    return {
+      userId:                 row.user_id,
+      username:               row.username,
+      email:                  row.email,
+      stripeCustomerId:       row.stripe_customer_id,
+      subscriptionStatus:     row.subscription_status || 'none',
+      subscriptionPeriodEnd:  row.subscription_period_end ? new Date(row.subscription_period_end).toISOString() : null,
+      trialEnd:               row.trial_end               ? new Date(row.trial_end).toISOString()               : null,
+      trialWarningSentAt:     row.trial_warning_sent_at   ? new Date(row.trial_warning_sent_at).toISOString()   : null,
+    };
+  }
+
   _mapRow(row) {
     return {
-      userId:             row.user_id,
-      username:           row.username,
-      email:              row.email,
-      passwordHash:       row.password_hash,
-      createdAt:          new Date(row.created_at).toISOString(),
-      defaultProvider:    row.default_provider,
-      showCompleted:      !!row.show_completed,
-      stripeCustomerId:   row.stripe_customer_id  || null,
-      subscriptionStatus: row.subscription_status || 'none',
-      emailVerified:      !!row.email_verified,
+      userId:                row.user_id,
+      username:              row.username,
+      email:                 row.email,
+      passwordHash:          row.password_hash,
+      createdAt:             new Date(row.created_at).toISOString(),
+      defaultProvider:       row.default_provider,
+      showCompleted:         !!row.show_completed,
+      stripeCustomerId:      row.stripe_customer_id        || null,
+      subscriptionStatus:    row.subscription_status       || 'none',
+      subscriptionPeriodEnd: row.subscription_period_end   ? new Date(row.subscription_period_end).toISOString() : null,
+      trialEnd:              row.trial_end                  ? new Date(row.trial_end).toISOString()               : null,
+      trialWarningSentAt:    row.trial_warning_sent_at      ? new Date(row.trial_warning_sent_at).toISOString()   : null,
+      emailVerified:         !!row.email_verified,
     };
   }
 }

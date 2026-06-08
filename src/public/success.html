@@ -134,6 +134,9 @@
           headers: authHeaders()
         });
         if (!res.ok) return;
+        // Flag that checkout just completed so app pages don't redirect to pricing
+        // while the webhook is still in transit (typically a few seconds).
+        localStorage.setItem('sub_just_activated', Date.now());
         const data = await res.json();
 
         let planLabel;
@@ -171,14 +174,9 @@
       const btn = document.getElementById('continue-btn');
       btn.disabled = true;
       btn.textContent = 'Loading…';
-      try {
-        const res = await fetch('/auth/providers/status', { headers: authHeaders() });
-        const status = await res.json();
-        const anyConnected = Object.values(status).some(Boolean);
-        window.location.href = anyConnected ? '/all-tasks.html' : '/settings.html';
-      } catch {
-        window.location.href = '/settings.html';
-      }
+      // After a fresh subscription always land on settings so the user can
+      // connect (or reconnect) their task providers before viewing tasks.
+      window.location.href = '/settings.html';
     }
 
     // Load session info if we have a session_id, then enable the button
