@@ -35,9 +35,9 @@ class AuthService {
     return (req, res, next) => {
       try {
         const authHeader = req.headers['authorization'];
-        
+
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-          return res.status(401).json({ 
+          return res.status(401).json({
             error: 'Authentication required',
             message: 'Please provide a valid authorization token'
           });
@@ -45,15 +45,39 @@ class AuthService {
 
         const token = authHeader.substring(7);
         const decoded = this.verifyToken(token);
-        
+
         // Attach user info to request
         req.user = decoded;
         next();
       } catch (error) {
-        return res.status(401).json({ 
+        return res.status(401).json({
           error: 'Invalid authentication',
-          message: error.message 
+          message: error.message
         });
+      }
+    };
+  }
+
+  // Middleware to enforce an active subscription on protected routes.
+  // Must run after requireAuth() so req.user is populated.
+  // Pass the userService instance: authService.requireSubscription(userService)
+  requireSubscription(userService) {
+    return async (req, res, next) => {
+      try {
+        const user = await userService.getUser(req.user.userId);
+        const status = user?.subscriptionStatus || 'none';
+
+        // Safety net: if a trialing user's trial has expired (missed webhook), cancel now
+        if (status === 'trialing' && user.trialEnd && new Date(user.trialEnd) < new Date()) {
+          await userService.updateSubscription(req.user.userId, user.stripeCustomerId, 'canceled', null, null);
+          return res.status(402).json({ error: 'subscription_required', status: 'canceled' });
+        }
+
+        if (['active', 'trialing', 'past_due'].includes(status)) return next();
+
+        return res.status(402).json({ error: 'subscription_required', status });
+      } catch (err) {
+        return res.status(500).json({ error: err.message });
       }
     };
   }

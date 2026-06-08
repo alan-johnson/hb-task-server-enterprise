@@ -136,7 +136,16 @@
   <!-- ── 8 ── -->
   <h2>8. Cookies and Local Storage</h2>
 
-  <p>The Service uses browser <code>localStorage</code> to store your authentication token on your device. This data never leaves your device except as the <code>Authorization</code> header on API requests to this Service. We do not use third-party cookies or tracking technologies.</p>
+  <p>The Service does <strong>not</strong> use HTTP cookies. All client-side persistence is handled exclusively through browser <code>localStorage</code>, which is stored only on your device and is never shared with third parties. We do not use third-party cookies, tracking pixels, analytics scripts, or advertising technologies of any kind.</p>
+
+  <p>The following values are stored in <code>localStorage</code>:</p>
+  <ul>
+    <li><strong><code>token</code></strong> — your JWT authentication token, required to identify you to the Service. Sent as the <code>Authorization: Bearer</code> header on every API request and cleared when you log out.</li>
+    <li><strong><code>sub_warning_dismissed</code></strong> — a timestamp recording when you last dismissed the subscription status reminder banner, used only to avoid showing it again within 24 hours.</li>
+    <li><strong><code>listsFilter</code></strong> — your last-selected provider filter on the task lists page, used to restore your view preference between page loads.</li>
+  </ul>
+
+  <p>No consent banner is required for this storage because all three values are either strictly necessary for authentication or are functional preferences that directly serve features you have requested. You can clear all stored data at any time by logging out or clearing your browser's site data for this domain.</p>
 
   <!-- ── 9 ── -->
   <h2>9. Children's Privacy</h2>
