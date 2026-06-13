@@ -28,6 +28,7 @@
       <div>
         <h1>Settings</h1>
         <div class="user-info" id="user-info">Loading…</div>
+        <div id="subscription-header-info" style="font-size:.8rem;color:#888;margin-top:.15rem"></div>
       </div>
       <div style="display:flex;gap:.5rem;align-items:center">
         <a href="/all-tasks.html" class="btn btn-primary btn-sm">View Tasks</a>
@@ -619,15 +620,17 @@
 
     function renderSubscriptionCard() {
       if (!billingInfo) return;
-      const { subscriptionStatus, plan, currentPeriodEnd, cancelAtPeriodEnd } = billingInfo;
+      const { subscriptionStatus, plan, currentPeriodEnd, cancelAtPeriodEnd, customerName } = billingInfo;
       const planLabel  = document.getElementById('sub-plan-label');
       const statusDesc = document.getElementById('sub-status-desc');
       const actions    = document.getElementById('sub-actions');
+      const headerInfo = document.getElementById('subscription-header-info');
 
       if (subscriptionStatus === 'none' || subscriptionStatus === 'canceled') {
         planLabel.textContent  = 'No active subscription';
         statusDesc.textContent = 'Subscribe to access UpQ features.';
         actions.innerHTML = `<a href="/pricing.html" class="btn btn-primary btn-sm">View Plans</a>`;
+        if (headerInfo) headerInfo.textContent = '';
         return;
       }
 
@@ -642,6 +645,21 @@
       } else {
         statusDesc.textContent = currentPeriodEnd ? `Renews ${fmtDate(currentPeriodEnd)}` : 'Active';
         actions.innerHTML = `<button class="btn btn-danger btn-sm" onclick="openCancelModal()">Cancel Subscription</button>`;
+      }
+
+      if (headerInfo && subscriptionStatus === 'active') {
+        const parts = [];
+        if (customerName) parts.push(customerName);
+        if (billingInfo.planName || plan) {
+          const sandbox = billingInfo.isTestMode ? ' (Stripe Sandbox)' : '';
+          parts.push(`Plan: ${billingInfo.planName || plan}${sandbox}`);
+        }
+        const dueDate = currentPeriodEnd || billingInfo.subscriptionPeriodEnd;
+        if (dueDate) {
+          const label = cancelAtPeriodEnd ? 'Subscription ends' : 'Next Due Date';
+          parts.push(`${label}: ${new Date(dueDate).toLocaleDateString()}`);
+        }
+        headerInfo.textContent = parts.join(' · ');
       }
     }
 

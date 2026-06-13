@@ -32,6 +32,11 @@ const stripe = process.env.STRIPE_SECRET_KEY
   ? require('stripe')(process.env.STRIPE_SECRET_KEY)
   : null;
 
+// Stripe API 2026-02-25.clover moved current_period_end from Subscription to SubscriptionItem
+function stripePeriodEnd(sub) {
+  return sub?.items?.data?.[0]?.current_period_end ?? sub?.current_period_end ?? null;
+}
+
 const { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail, verifySmtp, sendTrialEndingWarningEmail, sendPaymentFailedEmail, sendSubscriptionExpiredEmail } = require('./emailService');
 const { runSubscriptionMaintenance } = require('./jobs/subscriptionMaintenance');
 
@@ -151,8 +156,9 @@ app.post('/billing/webhook', express.raw({ type: 'application/json' }), async (r
         const sub = await stripe.subscriptions.retrieve(session.subscription);
         const stripeToStatus = { trialing: 'trialing', active: 'active', past_due: 'past_due', unpaid: 'past_due', canceled: 'canceled', incomplete_expired: 'canceled' };
         const status = stripeToStatus[sub.status] || 'active';
-        const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000) : null;
-        const trialEnd  = sub.trial_end          ? new Date(sub.trial_end * 1000)          : null;
+        const rawEnd   = stripePeriodEnd(sub);
+        const periodEnd = rawEnd  ? new Date(rawEnd  * 1000) : null;
+        const trialEnd  = sub.trial_end ? new Date(sub.trial_end * 1000) : null;
         await userService.updateSubscription(userId, session.customer, status, periodEnd, trialEnd);
         console.log(`Subscription ${status} for user ${userId}`);
       }
@@ -161,8 +167,9 @@ app.post('/billing/webhook', express.raw({ type: 'application/json' }), async (r
       const sub = event.data.object;
       const stripeToStatus = { trialing: 'trialing', active: 'active', past_due: 'past_due', unpaid: 'past_due', canceled: 'canceled', incomplete_expired: 'canceled' };
       const newStatus = stripeToStatus[sub.status] || sub.status;
-      const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000) : null;
-      const trialEnd  = sub.trial_end          ? new Date(sub.trial_end * 1000)          : null;
+      const rawEnd   = stripePeriodEnd(sub);
+      const periodEnd = rawEnd        ? new Date(rawEnd        * 1000) : null;
+      const trialEnd  = sub.trial_end ? new Date(sub.trial_end * 1000) : null;
       const user = await userService.getUserByStripeCustomerId(sub.customer);
       if (user) {
         await userService.updateSubscription(user.userId, sub.customer, newStatus, periodEnd, trialEnd);
@@ -1170,6 +1177,7 @@ app.get('/billing/status', authService.requireAuth(), async (req, res) => {
       subscriptionStatus:    status,
       subscriptionPeriodEnd: user.subscriptionPeriodEnd || null,
       trialEnd:              user.trialEnd              || null,
+      isTestMode:            (process.env.STRIPE_SECRET_KEY || '').startsWith('sk_test_'),
     };
 
     if (stripe && user.stripeCustomerId && status === 'active') {
@@ -1178,14 +1186,22 @@ app.get('/billing/status', authService.requireAuth(), async (req, res) => {
           customer: user.stripeCustomerId,
           status: 'active',
           limit: 1,
-          expand: ['data.items.data.price']
+          expand: ['data.items.data.price', 'data.customer']
         });
         if (subscriptions.data.length > 0) {
-          const sub  = subscriptions.data[0];
+          const sub   = subscriptions.data[0];
           const price = sub.items.data[0]?.price;
           response.plan              = price?.recurring?.interval === 'year' ? 'annual' : 'monthly';
-          response.currentPeriodEnd  = new Date(sub.current_period_end * 1000).toISOString();
+          const rawEnd = stripePeriodEnd(sub);
+          response.currentPeriodEnd  = rawEnd ? new Date(rawEnd * 1000).toISOString() : null;
           response.cancelAtPeriodEnd = sub.cancel_at_period_end;
+          response.customerName      = sub.customer?.name || null;
+          // price.product is a string ID unless separately retrieved
+          const productId = typeof price?.product === 'string' ? price.product : price?.product?.id;
+          if (productId) {
+            const product = await stripe.products.retrieve(productId);
+            response.planName = product.name || null;
+          }
         }
       } catch (stripeErr) {
         console.error('Stripe status lookup error:', stripeErr.message);
@@ -1267,7 +1283,7 @@ app.get('/billing/session-info', authService.requireAuth(), async (req, res) => 
       plan:              session.metadata?.plan || 'monthly',
       status:            sub?.status || 'active',
       trialEnd:          sub?.trial_end          ? new Date(sub.trial_end          * 1000).toISOString() : null,
-      currentPeriodEnd:  sub?.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
+      currentPeriodEnd:  sub ? (stripePeriodEnd(sub) ? new Date(stripePeriodEnd(sub) * 1000).toISOString() : null) : null,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1297,7 +1313,7 @@ app.post('/billing/cancel-subscription', authService.requireAuth(), async (req, 
 
     res.json({
       cancelAtPeriodEnd: updated.cancel_at_period_end,
-      currentPeriodEnd:  new Date(updated.current_period_end * 1000).toISOString()
+      currentPeriodEnd:  stripePeriodEnd(updated) ? new Date(stripePeriodEnd(updated) * 1000).toISOString() : null
     });
   } catch (err) {
     console.error('Stripe cancel error:', err.message);
@@ -1338,7 +1354,7 @@ app.post('/billing/switch-to-monthly', authService.requireAuth(), async (req, re
     });
 
     res.json({
-      currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString()
+      currentPeriodEnd: stripePeriodEnd(sub) ? new Date(stripePeriodEnd(sub) * 1000).toISOString() : null
     });
   } catch (err) {
     console.error('Stripe switch-to-monthly error:', err.message);
