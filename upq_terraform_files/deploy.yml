@@ -1,0 +1,61 @@
+name: deploy
+
+# Application + schema pipeline. Runs on merge to main.
+# ORDER MATTERS: migrate the DB only AFTER code is deployed and healthy,
+# but BEFORE traffic relies on the new schema. For simple forward-compatible
+# migrations, run migrate first; for risky ones, use expand/contract.
+# Default below: deploy code, then run Flyway migrate.
+#
+# Required secrets:
+#   SSH_HOST           droplet public IP
+#   SSH_PRIVATE_KEY    private key whose public half is on the droplet (deploy user)
+#   FLYWAY_URL         jdbc:mysql://<private-host>:<port>/upq?...   (use PRIVATE host)
+#   FLYWAY_USER        upq_app
+#   FLYWAY_PASSWORD    app DB password (from terraform output)
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['terraform/**', 'cloud-init/**', '**.md']
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false   # never interrupt a deploy mid-flight
+
+jobs:
+  deploy-app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy code to droplet
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: deploy
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -euo pipefail
+            cd /home/deploy/upq || git clone git@github.com:YOURORG/upq.git /home/deploy/upq && cd /home/deploy/upq
+            git fetch --all
+            git reset --hard origin/main
+            npm ci --omit=dev
+            pm2 reload ecosystem.config.js --update-env || pm2 start ecosystem.config.js
+            pm2 save
+
+  migrate-db:
+    needs: deploy-app          # only migrate after code is live
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Flyway migrations
+        uses: docker://flyway/flyway:10.17.0
+        with:
+          args: >
+            -url="${{ secrets.FLYWAY_URL }}"
+            -user="${{ secrets.FLYWAY_USER }}"
+            -password="${{ secrets.FLYWAY_PASSWORD }}"
+            -locations=filesystem:./migrations
+            -baselineOnMigrate=true
+            migrate

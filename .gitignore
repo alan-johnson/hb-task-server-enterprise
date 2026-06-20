@@ -37,3 +37,7 @@ coverage/
 TODO.md
 MARKETING.md
 SECURITY-AUDIT.md
+VPS_PLAN.md
+
+#infrastructure
+upq_terraform_files.zip
