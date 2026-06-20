@@ -1,0 +1,36 @@
+# /etc/caddy/Caddyfile on the droplet.
+# Replace upq.example.com with your real domain.
+# Caddy automatically obtains and renews a Let's Encrypt cert — no manual TLS.
+
+upq.example.com {
+    encode gzip zstd
+
+    # Reverse-proxy everything to the Node app on localhost:3000.
+    # Caddy transparently upgrades WebSocket connections (the /ws path or any
+    # path your app uses) — no special config needed for WS to work.
+    reverse_proxy localhost:3000 {
+        # Pass real client IP through to Node.
+        header_up X-Real-IP {remote_host}
+    }
+
+    # Security headers.
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    log {
+        output file /var/log/caddy/upq.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+    }
+}
+
+# Redirect www -> apex.
+www.upq.example.com {
+    redir https://upq.example.com{uri} permanent
+}

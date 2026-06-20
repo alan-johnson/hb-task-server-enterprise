@@ -1,0 +1,99 @@
+#cloud-config
+# ===========================================================================
+# UpQ app droplet first-boot configuration.
+# Runs once, automatically, when Terraform creates the droplet.
+# Turns a bare Ubuntu box into a hardened Node + Caddy host.
+# ===========================================================================
+
+package_update: true
+package_upgrade: true
+
+# --- Create a non-root sudo user ------------------------------------------
+# Replace the ssh-authorized-keys line with YOUR public key before applying.
+users:
+  - name: deploy
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAA_REPLACE_WITH_YOUR_PUBLIC_KEY deploy@upq
+
+packages:
+  - ufw
+  - fail2ban
+  - unattended-upgrades
+  - ca-certificates
+  - curl
+  - gnupg
+  - git
+  - debian-keyring
+  - debian-archive-keyring
+  - apt-transport-https
+  - age            # for encrypting backups
+  - default-jre-headless   # Flyway needs a JRE
+
+write_files:
+  # ---- SSH hardening ----
+  - path: /etc/ssh/sshd_config.d/99-upq-hardening.conf
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      ChallengeResponseAuthentication no
+      MaxAuthTries 3
+      X11Forwarding no
+      AllowUsers deploy
+
+  # ---- fail2ban: throttle SSH brute force ----
+  - path: /etc/fail2ban/jail.d/sshd.local
+    content: |
+      [sshd]
+      enabled = true
+      maxretry = 4
+      bantime = 1h
+      findtime = 10m
+
+  # ---- unattended security upgrades ----
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+runcmd:
+  # ---- Firewall: deny by default, allow SSH/HTTP/HTTPS ----
+  # (The DO cloud firewall also enforces this; ufw is defense-in-depth.)
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw --force enable
+
+  # ---- Node.js 22 LTS via NodeSource ----
+  - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  - apt-get install -y nodejs
+  - npm install -g pm2
+
+  # ---- Caddy (automatic HTTPS + clean WebSocket proxying) ----
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+  - apt-get update
+  - apt-get install -y caddy
+
+  # ---- Flyway CLI (for raw-SQL migrations) ----
+  - mkdir -p /opt/flyway
+  - curl -fsSL "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/10.17.0/flyway-commandline-10.17.0-linux-x64.tar.gz" | tar xz -C /opt/flyway --strip-components=1
+  - ln -sf /opt/flyway/flyway /usr/local/bin/flyway
+
+  # ---- PM2 boot persistence for the deploy user ----
+  - env PATH=$PATH:/usr/bin pm2 startup systemd -u deploy --hp /home/deploy
+
+  # ---- Apply SSH hardening ----
+  - systemctl restart ssh
+  - systemctl enable --now fail2ban
+
+# Reboot once so kernel security updates take effect.
+power_state:
+  mode: reboot
+  condition: true
+  delay: "+1"

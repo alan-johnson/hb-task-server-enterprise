@@ -1242,6 +1242,7 @@ app.post('/billing/create-checkout-session', authService.requireAuth(), async (r
       success_url: `${baseUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/pricing.html`,
       metadata: { userId: req.user.userId, plan },
+      allow_promotion_codes: true,
     };
 
     if (plan === 'trial') {

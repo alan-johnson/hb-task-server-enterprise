@@ -1,0 +1,20 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+# Most secrets should come from environment variables in CI instead of this file.
+
+do_region           = "nyc3"
+droplet_size        = "s-1vcpu-2gb"
+db_size             = "db-s-1vcpu-1gb"
+db_node_count       = 1
+
+# Get with: doctl compute ssh-key list
+ssh_key_fingerprint = "aa:bb:cc:dd:ee:ff:..."
+
+# Lock SSH to your own IP for real security. Find it: curl ifconfig.me
+ssh_allowed_cidrs   = ["YOUR.IP.ADDR.ESS/32"]
+
+# Optional — set to manage DNS in Terraform. Leave "" to skip.
+domain              = ""
+
+# Spaces credentials (also settable via TF_VAR_* env vars in CI)
+# spaces_access_id  = "..."
+# spaces_secret_key = "..."
