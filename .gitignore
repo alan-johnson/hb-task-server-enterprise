@@ -41,3 +41,5 @@ VPS_PLAN.md
 
 #infrastructure
 upq_terraform_files.zip
+terraform.tfvars
+.envrc

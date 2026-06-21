@@ -14,42 +14,42 @@ Completion: both sites live on DO, Namecheap Stellar plan cancelled.
 
 ## Phase 0 — Credentials & Tools (do this first, everything else depends on it)
 
-- [ ] **Install `doctl`** (DO CLI) on your Mac:
+- [X] **Install `doctl`** (DO CLI) on your Mac:
   ```bash
   brew install doctl
   ```
-- [ ] **Install Terraform** on your Mac:
+- [X] **Install Terraform** on your Mac:
   ```bash
   brew tap hashicorp/tap && brew install hashicorp/tap/terraform
   ```
-- [ ] **Install `age`** (backup encryption tool):
+- [X] **Install `age`** (backup encryption tool):
   ```bash
   brew install age
   ```
-- [ ] **Create a DO API token** with read+write scope:
+- [X] **Create a DO API token** with read+write scope:
   DO panel → API → Tokens → Generate New Token.
   Save it somewhere safe (1Password, etc.) — you will not see it again.
-- [ ] **Create DO Spaces access keys**:
+- [X] **Create DO Spaces access keys**:
   DO panel → API → Spaces Keys → Generate New Key.
   Save the key ID and secret.
-- [ ] **Authenticate `doctl`**:
+- [X] **Authenticate `doctl`**:
   ```bash
   doctl auth init   # paste your DO API token when prompted
   ```
-- [ ] **Generate an SSH key pair** for the `deploy` user (skip if you already have one you want to use):
+- [X] **Generate an SSH key pair** for the `deploy` user (skip if you already have one you want to use):
   ```bash
   ssh-keygen -t ed25519 -C "deploy@upq" -f ~/.ssh/upq_deploy
   ```
-- [ ] **Upload your SSH public key to DO**:
+- [X] **Upload your SSH public key to DO**:
   DO panel → Settings → Security → Add SSH Key → paste `~/.ssh/upq_deploy.pub`.
   Note the key fingerprint shown (you need it for Terraform).
-- [ ] **Generate an `age` keypair** for backup encryption:
+- [X] **Generate an `age` keypair** for backup encryption:
   ```bash
   age-keygen -o ~/age-key.txt
   ```
   The file contains both public and private keys. Keep it OFF the server and out of git.
   The public key (starts with `age1...`) goes into `backup.env` later.
-- [ ] **Set a DO billing alert**:
+- [X] **Set a DO billing alert**:
   DO panel → Billing → Alerts → set a threshold (e.g. $60/mo) so a misconfiguration
   can't silently run up a large bill.
 
@@ -60,12 +60,12 @@ Completion: both sites live on DO, Namecheap Stellar plan cancelled.
 Terraform stores its state in a DO Spaces bucket. That bucket must exist before
 `terraform init` — it cannot be created by Terraform itself (chicken-and-egg).
 
-- [ ] **Create the Terraform state bucket by hand**:
+- [X] **Create the Terraform state bucket by hand**:
   DO panel → Spaces Object Storage → Create Space:
   - Region: **NYC3**
   - Name: `upq-tfstate`
   - Access: **Private**
-- [ ] **Export credentials** in your terminal before running Terraform:
+- [X] **Export credentials** in your terminal before running Terraform:
   ```bash
   export DIGITALOCEAN_TOKEN=<your DO API token>
   export AWS_ACCESS_KEY_ID=<Spaces key ID>
@@ -77,12 +77,12 @@ Terraform stores its state in a DO Spaces bucket. That bucket must exist before
 
 ## Phase 2 — Configure Terraform
 
-- [ ] **Put your SSH public key into cloud-init**:
+- [X] **Put your SSH public key into cloud-init**:
   Edit `upq_terraform_files/upq-infra/cloud-init/app.yaml`.
   Replace `ssh-ed25519 AAAA_REPLACE_WITH_YOUR_PUBLIC_KEY deploy@upq`
   with the actual contents of `~/.ssh/upq_deploy.pub`.
 
-- [ ] **Create `terraform.tfvars`** from the example:
+- [X] **Create `terraform.tfvars`** from the example:
   ```bash
   cd upq_terraform_files/upq-infra/terraform
   cp terraform.tfvars.example terraform.tfvars
@@ -94,7 +94,7 @@ Terraform stores its state in a DO Spaces bucket. That bucket must exist before
   - `spaces_access_id` and `spaces_secret_key` — from Phase 0
   - Leave `domain = ""` (we manage DNS at Namecheap manually, not through Terraform)
 
-- [ ] **Verify `terraform.tfvars` is gitignored** — it contains secrets.
+- [X] **Verify `terraform.tfvars` is gitignored** — it contains secrets.
   Check `upq_terraform_files/upq-infra/.gitignore` includes `terraform.tfvars`.
 
 ---
