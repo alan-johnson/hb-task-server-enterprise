@@ -1,19 +1,15 @@
 # /etc/caddy/Caddyfile on the droplet.
-# Replace upq.example.com with your real domain.
 # Caddy automatically obtains and renews a Let's Encrypt cert — no manual TLS.
 
-upq.example.com {
+tasks.handsbreadth.com {
     encode gzip zstd
 
-    # Reverse-proxy everything to the Node app on localhost:3000.
-    # Caddy transparently upgrades WebSocket connections (the /ws path or any
-    # path your app uses) — no special config needed for WS to work.
-    reverse_proxy localhost:3000 {
-        # Pass real client IP through to Node.
+    # Reverse-proxy everything to the Node app on localhost:3500.
+    # Caddy transparently upgrades WebSocket connections — no special WS config needed.
+    reverse_proxy localhost:3500 {
         header_up X-Real-IP {remote_host}
     }
 
-    # Security headers.
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
         X-Content-Type-Options "nosniff"
@@ -30,7 +26,37 @@ upq.example.com {
     }
 }
 
-# Redirect www -> apex.
-www.upq.example.com {
-    redir https://upq.example.com{uri} permanent
+www.tasks.handsbreadth.com {
+    redir https://tasks.handsbreadth.com{uri} permanent
+}
+
+# ── handsbreadth.com (main business site) ────────────────────────────────────
+# Static files + PHP-FPM for the email contact form (PHPMailer over SMTP).
+# Files live at /var/www/handsbreadth/ (git pull from the site repo to deploy).
+# Place the .env file (RECAPTCHA_SECRET_KEY, EMAIL_USERNAME, EMAIL_PASSWORD)
+# in /var/www/handsbreadth/ on first deploy — it is not committed to git.
+
+handsbreadth.com, www.handsbreadth.com {
+    encode gzip zstd
+
+    root * /var/www/handsbreadth
+
+    # Pass .php requests to PHP-FPM; serve everything else as static files.
+    php_fastcgi unix//run/php/php8.3-fpm.sock
+    file_server
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    log {
+        output file /var/log/caddy/handsbreadth.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+    }
 }

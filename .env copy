@@ -1,0 +1,57 @@
+# Server Configuration
+# WEB_URL=http://localhost
+WEB_URL=https://tasks.handsbreadth.com
+PORT=3500
+# ALLOWED_ORIGIN=http://localhost:3500
+ALLOWED_ORIGIN=https://tasks.handsbreadth.com
+
+# Stripe
+STRIPE_SECRET_KEY=
+STRIPE_PRICE_ID_MONTHLY=price_1T8O5AEOpnRuDFa8PpGAKTEi
+STRIPE_PRICE_ID_ANNUAL=price_1T8NRhEOpnRuDFa8o7J9ZsTx
+STRIPE_TRIAL_DAYS=14
+STRIPE_WEBHOOK_SECRET=
+
+
+# Security (CHANGE THIS IN PRODUCTION!)
+JWT_SECRET=
+
+
+# Redis
+REDIS_URL=redis://localhost:6379
+
+# Database
+# Format: mysql://user:password@host:port/dbname
+DATABASE_URL=mysql://hbtasks:hbtasks-local-dev@localhost:3306/hb_task_server
+
+# Token Encryption Key (AES-256-GCM)
+# Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# ENCRYPTION_KEY=your-64-character-hex-encryption-key-change-this-in-production
+ENCRYPTION_KEY=
+# NEW ENCRYPTION_KEY=
+# ── Email (SMTP) ─────────────────────────────────────────────────────────────
+# Used to send account-verification emails on registration.
+# If SMTP_HOST is omitted the server logs verify URLs to the console instead.
+SMTP_HOST=mail.privateemail.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=support@handsbreadth.com
+SMTP_PASSWORD=
+SMTP_FROM=handsbreadth LLC <noreply@handsbreadth.com>
+
+# Microsoft Graph API
+MICROSOFT_CLIENT_ID=6347d8c5-37ac-48e4-b9d9-cf9cce32c9b4
+MICROSOFT_CLIENT_SECRET=
+MICROSOFT_SECRET_ID=
+MICROSOFT_TENANT_ID=common
+# MICROSOFT_REDIRECT_URI=http://localhost:3500/auth/microsoft/callback
+MICROSOFT_REDIRECT_URI=https://tasks.handsbreadth.com/auth/microsoft/callback
+
+# Google Tasks API
+GOOGLE_CLIENT_ID=149483936091-vbvsg50hueo5khqrnqair4of5840dc6c.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=
+# GOOGLE_REDIRECT_URI=http://localhost:3500/auth/google/callback
+GOOGLE_REDIRECT_URI=https://tasks.handsbreadth.com/auth/google/callback
+
+# Default task provider (microsoft or google)
+DEFAULT_PROVIDER=microsoft

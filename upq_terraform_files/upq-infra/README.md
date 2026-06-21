@@ -58,13 +58,64 @@ terraform apply
 
 ### Phase 2 — wire up the app
 1. Grab connection details: `terraform output -raw db_app_password`, etc.
-2. SSH in as `deploy`, drop `scripts/Caddyfile` at `/etc/caddy/Caddyfile`
-   (edit the domain), `systemctl reload caddy`.
-3. Put DB creds + Stripe keys in the app's `.env` on the droplet (chmod 600).
+2. SSH in as `deploy`, drop `scripts/Caddyfile` at `/etc/caddy/Caddyfile`,
+   then `systemctl reload caddy`.
+3. Put DB creds + Stripe keys in the UpQ `.env` on the droplet (chmod 600).
 4. Put `scripts/backup.sh` + `/etc/upq/backup.env` on the droplet, add a cron entry:
    `0 3 * * * /home/deploy/backup.sh >> /var/log/upq-backup.log 2>&1`
 5. Add all GitHub Actions secrets (listed in each workflow file).
 6. Push to main — CI deploys the app and runs migrations.
+
+### Phase 3 — migrate handsbreadth.com
+The main business site (handsbreadth.com) is a PHP/static site hosted alongside
+UpQ on the same droplet. PHP-FPM 8.3 is installed by cloud-init automatically.
+
+1. SSH in as `deploy` and clone the site repo:
+   ```bash
+   git clone https://github.com/<your-org>/handsbreadth-site.git /var/www/handsbreadth
+   ```
+2. Place the site's `.env` file (not in git) at `/var/www/handsbreadth/.env`:
+   ```
+   RECAPTCHA_SECRET_KEY=...
+   EMAIL_USERNAME=...
+   EMAIL_PASSWORD=...
+   ```
+   `chmod 600 /var/www/handsbreadth/.env`
+3. Verify PHP-FPM is running: `systemctl status php8.3-fpm`
+4. Point DNS at Namecheap:
+   - `handsbreadth.com` A record → droplet IP
+   - `www.handsbreadth.com` A record → droplet IP
+   - `tasks.handsbreadth.com` A record → droplet IP
+   Use TTL 300 while testing; raise to 3600 once confirmed working.
+5. Test both sites. Once confirmed, cancel the Namecheap Stellar hosting plan.
+   Keep the domain registration — that's separate and must stay active.
+
+## Production-specific notes
+
+### mysql2 TLS (required)
+DO Managed MySQL listens on port **25060** and requires TLS. The app reads
+`DB_SSL_CA_PATH` from `.env` and passes the CA cert to mysql2's `ssl` option.
+Download the CA certificate from the DO panel (Databases → your cluster →
+"Download CA certificate") and place it on the droplet at
+`/home/deploy/ca-certificate.crt`. Set `DB_SSL_CA_PATH` in `.env` accordingly.
+Local dev connections (localhost:3306) work without this — leave `DB_SSL_CA_PATH`
+unset in your dev environment.
+
+### TOML classification config
+The app reads `config/classification.toml` if present and falls back to built-in
+defaults if absent. The file is committed to the repo, so it deploys automatically
+with the code — no extra step needed.
+
+### OAuth redirect URIs
+The production hostname (`tasks.handsbreadth.com`) must be registered as an
+allowed redirect URI in both provider consoles:
+- **Microsoft**: Azure portal → App registrations → Authentication → add
+  `https://tasks.handsbreadth.com/auth/microsoft/callback`
+- **Google**: Google Cloud Console → Credentials → OAuth client → Authorized
+  redirect URIs → add `https://tasks.handsbreadth.com/auth/google/callback`
+
+Also update `MICROSOFT_REDIRECT_URI` and `GOOGLE_REDIRECT_URI` in the droplet's
+`.env` to match.
 
 ## Security notes
 
