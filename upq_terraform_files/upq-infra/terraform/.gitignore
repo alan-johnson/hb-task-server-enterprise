@@ -1,0 +1,11 @@
+# Terraform local cache — never commit
+.terraform/
+.terraform.lock.hcl
+
+# State files — stored remotely in DO Spaces, never commit locally
+terraform.tfstate
+terraform.tfstate.backup
+
+# Secrets — never commit
+terraform.tfvars
+*.tfvars
