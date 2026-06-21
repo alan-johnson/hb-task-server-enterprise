@@ -36,7 +36,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             set -euo pipefail
-            cd /home/deploy/upq || git clone git@github.com:YOURORG/upq.git /home/deploy/upq && cd /home/deploy/upq
+            cd /home/deploy/upq || git clone git@github.com:alan-johnson/hb-task-server-enterprise.git /home/deploy/upq && cd /home/deploy/upq
             git fetch --all
             git reset --hard origin/main
             npm ci --omit=dev
@@ -56,6 +56,6 @@ jobs:
             -url="${{ secrets.FLYWAY_URL }}"
             -user="${{ secrets.FLYWAY_USER }}"
             -password="${{ secrets.FLYWAY_PASSWORD }}"
-            -locations=filesystem:./migrations
+            -locations=filesystem:./upq_terraform_files/upq-infra/migrations
             -baselineOnMigrate=true
             migrate

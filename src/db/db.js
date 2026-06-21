@@ -1,13 +1,21 @@
 const mysql = require('mysql2/promise');
 const crypto = require('crypto');
+const fs = require('fs');
 
 // --- Connection Pool ---
+
+// DB_SSL_CA_PATH is required for DO Managed MySQL (TLS on port 25060).
+// Leave it unset for local dev (plaintext localhost connections).
+const sslOptions = process.env.DB_SSL_CA_PATH
+  ? { ssl: { ca: fs.readFileSync(process.env.DB_SSL_CA_PATH) } }
+  : {};
 
 const mysqlPool = mysql.createPool({
   uri: process.env.DATABASE_URL,
   waitForConnections: true,
   connectionLimit: 10,
   connectTimeout: 5000,
+  ...sslOptions,
 });
 
 // Thin wrapper that mimics the pg Pool API used throughout the app:

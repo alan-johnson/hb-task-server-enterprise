@@ -29,8 +29,11 @@ packages:
   - debian-keyring
   - debian-archive-keyring
   - apt-transport-https
-  - age            # for encrypting backups
+  - age                    # for encrypting backups
   - default-jre-headless   # Flyway needs a JRE
+  - php8.3-fpm             # handsbreadth.com PHP email form
+  - php8.3-curl            # reCAPTCHA verification call
+  - php8.3-mbstring        # PHPMailer dependency
 
 write_files:
   # ---- SSH hardening ----
@@ -84,6 +87,13 @@ runcmd:
   - mkdir -p /opt/flyway
   - curl -fsSL "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/10.17.0/flyway-commandline-10.17.0-linux-x64.tar.gz" | tar xz -C /opt/flyway --strip-components=1
   - ln -sf /opt/flyway/flyway /usr/local/bin/flyway
+
+  # ---- PHP-FPM (handsbreadth.com email form) ----
+  - systemctl enable --now php8.3-fpm
+
+  # ---- Web root for handsbreadth.com ----
+  - mkdir -p /var/www/handsbreadth
+  - chown deploy:deploy /var/www/handsbreadth
 
   # ---- PM2 boot persistence for the deploy user ----
   - env PATH=$PATH:/usr/bin pm2 startup systemd -u deploy --hp /home/deploy
