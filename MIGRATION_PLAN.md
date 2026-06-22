@@ -101,21 +101,21 @@ Terraform stores its state in a DO Spaces bucket. That bucket must exist before
 
 ## Phase 3 — Provision Infrastructure
 
-- [ ] **Initialize Terraform**:
+- [X] **Initialize Terraform**:
   ```bash
   cd upq_terraform_files/upq-infra/terraform
   terraform init
   ```
-- [ ] **Review the plan** — read every resource carefully:
+- [X] **Review the plan** — read every resource carefully:
   ```bash
   terraform plan
   ```
-- [ ] **Apply** (creates droplet, managed MySQL, VPC, firewall, Spaces backup bucket):
+- [X] **Apply** (creates droplet, managed MySQL, VPC, firewall, Spaces backup bucket):
   ```bash
   terraform apply
   ```
   This takes 5–10 minutes. The managed MySQL cluster takes the longest.
-- [ ] **Save the outputs** — you need these throughout the rest of setup:
+- [X] **Save the outputs** — you need these throughout the rest of setup:
   ```bash
   terraform output app_ipv4              # droplet public IP
   terraform output -raw db_private_host  # DB hostname (VPC-internal)
@@ -133,21 +133,21 @@ Terraform stores its state in a DO Spaces bucket. That bucket must exist before
 Wait ~5 minutes after `terraform apply` for cloud-init to finish installing Node,
 Caddy, PHP-FPM, and Flyway before SSHing in.
 
-- [ ] **SSH in as `deploy`**:
+- [X] **SSH in as `deploy`**:
   ```bash
   ssh -i ~/.ssh/upq_deploy deploy@<app_ipv4>
   ```
-- [ ] **Confirm cloud-init finished**:
+- [X] **Confirm cloud-init finished**:
   ```bash
   sudo cloud-init status --wait
   # Should print: status: done
   ```
-- [ ] **Create the app directory and clone the UpQ repo**:
+- [X] **Create the app directory and clone the UpQ repo**:
   ```bash
   mkdir -p /home/deploy/upq
   git clone https://github.com/alan-johnson/hb-task-server-enterprise.git /home/deploy/upq
   ```
-- [ ] **Create the UpQ `.env` file** on the droplet:
+- [X] **Create the UpQ `.env` file** on the droplet:
   ```bash
   nano /home/deploy/upq/.env
   # chmod 600 /home/deploy/upq/.env after saving
@@ -167,7 +167,7 @@ Caddy, PHP-FPM, and Flyway before SSHing in.
   - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI=https://tasks.handsbreadth.com/auth/google/callback`
   - `REDIS_URL=` — leave commented out (Redis not used at launch)
 
-- [ ] **Download the DO MySQL CA certificate**:
+- [X] **Download the DO MySQL CA certificate**:
   DO panel → Databases → your MySQL cluster → "Download CA certificate".
   Copy it to the droplet:
   ```bash
@@ -175,23 +175,23 @@ Caddy, PHP-FPM, and Flyway before SSHing in.
   chmod 600 /home/deploy/ca-certificate.crt
   ```
 
-- [ ] **Place the Caddyfile**:
+- [X] **Place the Caddyfile**:
   ```bash
   sudo cp /home/deploy/upq/upq_terraform_files/upq-infra/scripts/Caddyfile /etc/caddy/Caddyfile
   sudo systemctl reload caddy
   ```
 
-- [ ] **Place the ecosystem.config.js** (PM2 process config):
+- [X] **Place the ecosystem.config.js** (PM2 process config):
   ```bash
   cp /home/deploy/upq/upq_terraform_files/upq-infra/ecosystem.config.js /home/deploy/upq/ecosystem.config.js
   ```
 
-- [ ] **Install Node dependencies**:
+- [X] **Install Node dependencies**:
   ```bash
   cd /home/deploy/upq && npm ci --omit=dev
   ```
 
-- [ ] **Set up backup secrets**:
+- [X] **Set up backup secrets**:
   ```bash
   sudo mkdir -p /etc/upq
   sudo nano /etc/upq/backup.env
@@ -202,7 +202,7 @@ Caddy, PHP-FPM, and Flyway before SSHing in.
   `SPACES_BUCKET=upq-backups`, `SPACES_ENDPOINT=https://nyc3.digitaloceanspaces.com`,
   `B2_BUCKET=<your Backblaze bucket name>`
 
-- [ ] **Place backup script and add cron**:
+- [X] **Place backup script and add cron**:
   ```bash
   cp /home/deploy/upq/upq_terraform_files/upq-infra/scripts/backup.sh /home/deploy/backup.sh
   chmod +x /home/deploy/backup.sh
@@ -214,10 +214,10 @@ Caddy, PHP-FPM, and Flyway before SSHing in.
 
 ## Phase 5 — Backblaze B2 Setup (off-site backup copy)
 
-- [ ] **Create a Backblaze account** at backblaze.com if you don't have one.
-- [ ] **Create a B2 bucket**: name it `upq-backups-b2`, private.
-- [ ] **Create B2 application keys** with write access to that bucket.
-- [ ] **Install `rclone`** on the droplet:
+- [X] **Create a Backblaze account** at backblaze.com if you don't have one.
+- [X] **Create a B2 bucket**: name it `upq-backups-b2`, private.
+- [X] **Create B2 application keys** with write access to that bucket.
+- [X] **Install `rclone`** on the droplet:
   ```bash
   sudo apt-get install -y rclone
   rclone config   # add a remote named 'b2' using your B2 keys
@@ -227,7 +227,7 @@ Caddy, PHP-FPM, and Flyway before SSHing in.
 
 ## Phase 6 — Configure GitHub Actions CI/CD
 
-- [ ] **Add GitHub Actions secrets** to the `hb-task-server-enterprise` repo:
+- [X] **Add GitHub Actions secrets** to the `hb-task-server-enterprise` repo:
   GitHub → repo → Settings → Secrets and variables → Actions → New repository secret:
   - `SSH_HOST` — droplet public IP
   - `SSH_PRIVATE_KEY` — contents of `~/.ssh/upq_deploy` (the private key)
@@ -275,10 +275,29 @@ login will work on the new hostname.
 
 ---
 
-## Phase 9 — Smoke Test on the Droplet IP (before DNS cutover)
+## Phase 9 — Cloudflare Configuration (before DNS cutover)
 
-Test directly against the droplet IP before touching DNS, so the live Namecheap
-site is unaffected if anything is wrong.
+Traffic flows: **User → Cloudflare (TLS) → DO Droplet (Caddy)**
+Cloudflare stays in front of both sites. DNS is managed in Cloudflare, not Namecheap.
+
+- [ ] **Set Cloudflare SSL/TLS mode to Full (strict)**:
+  Cloudflare dashboard → your domain → SSL/TLS → Overview → select **Full (strict)**.
+  This ensures traffic from Cloudflare to Caddy is also encrypted. Caddy's
+  Let's Encrypt cert satisfies the strict requirement.
+
+- [ ] **Confirm WebSocket proxying is enabled** in Cloudflare:
+  Cloudflare → Network → WebSockets → **On**.
+  Required for the macOS bridge client's persistent WebSocket connection.
+
+- [ ] **Note the droplet public IP** from `terraform output app_ipv4` — you will
+  enter this into Cloudflare DNS records in Phase 10 and 11.
+
+---
+
+## Phase 10 — Smoke Test on the Droplet IP (before DNS cutover)
+
+Test directly against the droplet IP before touching DNS, so the live Namecheap/
+Cloudflare site is unaffected if anything is wrong.
 
 - [ ] **Start the app with PM2**:
   ```bash
@@ -304,24 +323,27 @@ site is unaffected if anything is wrong.
 
 ---
 
-## Phase 10 — DNS Cutover for tasks.handsbreadth.com (Project A goes live)
+## Phase 11 — DNS Cutover for tasks.handsbreadth.com (Project A goes live)
 
-Only do this after Phase 9 is fully green.
+Only do this after Phase 10 is fully green.
 
-- [ ] **Lower the TTL** on `tasks.handsbreadth.com` at Namecheap to 300 seconds.
+- [ ] **Lower the TTL** on `tasks.handsbreadth.com` in Cloudflare to 1 minute:
+  Cloudflare → DNS → Records → find `tasks` A record → edit → TTL: 1 min.
   Wait for the current TTL to expire before proceeding.
-- [ ] **Update the DNS A record** at Namecheap:
-  Advanced DNS → find (or add) the `tasks` A record → change value to the droplet IP.
-- [ ] **Wait for DNS propagation** (a few minutes at TTL 300).
-  Verify: `dig tasks.handsbreadth.com` should return the droplet IP.
-- [ ] **Confirm Caddy got a cert**: `https://tasks.handsbreadth.com` should load with
-  a valid Let's Encrypt certificate (green padlock).
+- [ ] **Update the `tasks` A record** in Cloudflare:
+  Change the value to the DO droplet IP. Keep the **Proxy status: Proxied** (orange cloud).
+- [ ] **Wait for propagation** (a few minutes at 1 min TTL).
+  Verify: `dig tasks.handsbreadth.com` should return Cloudflare's IPs (not the droplet
+  IP directly — Cloudflare masks the origin when proxied, which is correct).
+- [ ] **Confirm HTTPS works**: `https://tasks.handsbreadth.com` should load with
+  Cloudflare's certificate (green padlock). Caddy's cert handles the Cloudflare →
+  droplet leg in Full (strict) mode.
 - [ ] **Test login, task sync, WebSocket bridge** — the full golden path.
-- [ ] **Raise the TTL** back to 3600 once confirmed stable.
+- [ ] **Raise the TTL** back to Auto (or 1 hour) once confirmed stable.
 
 ---
 
-## Phase 11 — Migrate handsbreadth.com (Project B)
+## Phase 12 — Migrate handsbreadth.com (Project B)
 
 - [ ] **Clone the handsbreadth.com site repo** on the droplet:
   ```bash
@@ -343,18 +365,18 @@ Only do this after Phase 9 is fully green.
   systemctl status php8.3-fpm
   curl http://localhost/   # should serve the site (HTTP only before DNS)
   ```
-- [ ] **Lower TTL** for `handsbreadth.com` and `www.handsbreadth.com` at Namecheap to 300.
+- [ ] **Lower TTL** for `handsbreadth.com` and `www.handsbreadth.com` in Cloudflare to 1 minute.
   Wait for current TTL to expire.
-- [ ] **Update DNS A records** at Namecheap:
-  - `@` (apex) A record → droplet IP
-  - `www` A record → droplet IP
-- [ ] **Wait for propagation**, then verify: `https://www.handsbreadth.com` loads with
-  a valid cert and the contact form works end-to-end (sends a real test email).
-- [ ] **Raise TTLs** back to 3600 once confirmed stable.
+- [ ] **Update DNS A records** in Cloudflare:
+  - `@` (apex) A record → droplet IP, **Proxied** (orange cloud)
+  - `www` A record → droplet IP, **Proxied** (orange cloud)
+- [ ] **Wait for propagation**, then verify: `https://www.handsbreadth.com` loads
+  correctly and the contact form works end-to-end (sends a real test email).
+- [ ] **Raise TTLs** back to Auto once confirmed stable.
 
 ---
 
-## Phase 12 — Cancel Namecheap Stellar (final step)
+## Phase 13 — Cancel Namecheap Stellar (final step)
 
 Do not cancel until both DNS cutovers are confirmed working and stable for at least
 24 hours.
@@ -365,6 +387,8 @@ Do not cancel until both DNS cutovers are confirmed working and stable for at le
 - [ ] **Cancel the Stellar hosting plan** at Namecheap:
   Namecheap → Dashboard → your Stellar plan → Cancel.
 - [ ] **Do NOT cancel domain registration** — `handsbreadth.com` must stay registered.
+  DNS is now managed in Cloudflare; the Namecheap nameservers should already be
+  pointing to Cloudflare (this is how Cloudflare works — it doesn't change).
 
 ---
 
