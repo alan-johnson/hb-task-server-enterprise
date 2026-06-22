@@ -36,7 +36,7 @@ resource "digitalocean_droplet" "app" {
 resource "digitalocean_database_cluster" "mysql" {
   name       = "upq-mysql"
   engine     = "mysql"
-  version    = "8"
+  version    = "8.4"
   size       = var.db_size
   region     = var.do_region
   node_count = var.db_node_count

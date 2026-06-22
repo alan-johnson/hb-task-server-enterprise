@@ -9,3 +9,7 @@ terraform.tfstate.backup
 # Secrets — never commit
 terraform.tfvars
 *.tfvars
+
+# Plan output files
+tfplan.binary
+*.txt
