@@ -1,6 +1,5 @@
 # Dependencies
 node_modules/
-package-lock.json
 
 # Environment variables (contains secrets — never commit)
 .env
@@ -43,3 +42,4 @@ VPS_PLAN.md
 upq_terraform_files.zip
 terraform.tfvars
 .envrc
+terraform-plan.txt
