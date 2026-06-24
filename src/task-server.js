@@ -7,6 +7,17 @@ const fs = require('fs');
 const path = require('path');
 const TOML = require('@iarna/toml');
 
+// this is the main task-server.js file that runs the API server and 
+//  handles authentication, provider integration, and user settings. 
+// It uses Express for routing, CORS for cross-origin requests, 
+// and body-parser for parsing JSON request bodies. 
+// The server supports Microsoft, Google, and Apple task providers, 
+// and includes routes for user registration, login, email verification,
+// password reset, and provider OAuth flows. 
+// It also includes a simple in-memory cache for performance 
+// optimization and logs to both stdout and a log file for visibility 
+// in hosting environments.
+
 // File logger — writes to app.log in the project root so logs are visible
 // via cPanel File Manager when the hosting environment swallows stdout/stderr.
 const LOG_FILE = path.join(__dirname, '..', 'app.log');
