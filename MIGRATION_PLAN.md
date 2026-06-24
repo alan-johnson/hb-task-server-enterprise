@@ -210,6 +210,15 @@ Caddy, PHP-FPM, and Flyway before SSHing in.
   # Add: 0 3 * * * /home/deploy/backup.sh >> /var/log/upq-backup.log 2>&1
   ```
 
+- [ ] **Start the app with PM2**:
+  ```bash
+  cd /home/deploy/upq
+  pm2 start ecosystem.config.js
+  pm2 save
+  ```
+  Confirm it started: `pm2 status` — should show `upq` with status `online`.
+  Check logs for DB connectivity: `pm2 logs upq --lines 50`
+
 ---
 
 ## Phase 5 — Backblaze B2 Setup (off-site backup copy)
@@ -235,7 +244,7 @@ Caddy, PHP-FPM, and Flyway before SSHing in.
   - `FLYWAY_USER` — `upq_app`
   - `FLYWAY_PASSWORD` — DB app password from `terraform output`
 
-- [ ] **Commit and push the workflow file** (already moved to `.github/workflows/deploy.yml`):
+- [X] **Commit and push the workflow file** (already moved to `.github/workflows/deploy.yml`):
   ```bash
   git add .github/workflows/deploy.yml
   git commit -m "add deploy workflow"
@@ -249,11 +258,11 @@ Caddy, PHP-FPM, and Flyway before SSHing in.
 The Microsoft and Google OAuth apps need the production callback URLs added before
 login will work on the new hostname.
 
-- [ ] **Microsoft** — Azure portal → App registrations → your UpQ app →
+- [X] **Microsoft** — Azure portal → App registrations → your UpQ app →
   Authentication → add redirect URI:
   `https://tasks.handsbreadth.com/auth/microsoft/callback`
 
-- [ ] **Google** — Google Cloud Console → Credentials → your OAuth 2.0 client →
+- [X] **Google** — Google Cloud Console → Credentials → your OAuth 2.0 client →
   Authorized redirect URIs → add:
   `https://tasks.handsbreadth.com/auth/google/callback`
 
@@ -261,14 +270,14 @@ login will work on the new hostname.
 
 ## Phase 8 — Stripe Production Webhook
 
-- [ ] **Register the webhook** in the Stripe Dashboard (live mode):
+- [X] **Register the webhook** in the Stripe Dashboard (live mode):
   Stripe → Developers → Webhooks → Add endpoint:
   - URL: `https://tasks.handsbreadth.com/webhook`
   - Events: `customer.subscription.updated`, `customer.subscription.deleted`,
     `invoice.payment_failed` (add any others the app handles)
-- [ ] **Copy the webhook signing secret** and add it to the droplet `.env`:
+- [X] **Copy the webhook signing secret** and add it to the droplet `.env`:
   `STRIPE_WEBHOOK_SECRET=whsec_...`
-- [ ] **Restart the app** after updating `.env`:
+- [X] **Restart the app** after updating `.env`:
   ```bash
   pm2 reload upq --update-env
   ```
@@ -280,16 +289,16 @@ login will work on the new hostname.
 Traffic flows: **User → Cloudflare (TLS) → DO Droplet (Caddy)**
 Cloudflare stays in front of both sites. DNS is managed in Cloudflare, not Namecheap.
 
-- [ ] **Set Cloudflare SSL/TLS mode to Full (strict)**:
+- [X] **Set Cloudflare SSL/TLS mode to Full (strict)**:
   Cloudflare dashboard → your domain → SSL/TLS → Overview → select **Full (strict)**.
   This ensures traffic from Cloudflare to Caddy is also encrypted. Caddy's
   Let's Encrypt cert satisfies the strict requirement.
 
-- [ ] **Confirm WebSocket proxying is enabled** in Cloudflare:
+- [X] **Confirm WebSocket proxying is enabled** in Cloudflare:
   Cloudflare → Network → WebSockets → **On**.
   Required for the macOS bridge client's persistent WebSocket connection.
 
-- [ ] **Note the droplet public IP** from `terraform output app_ipv4` — you will
+- [X] **Note the droplet public IP** from `terraform output app_ipv4` — you will
   enter this into Cloudflare DNS records in Phase 10 and 11.
 
 ---
@@ -299,18 +308,18 @@ Cloudflare stays in front of both sites. DNS is managed in Cloudflare, not Namec
 Test directly against the droplet IP before touching DNS, so the live Namecheap/
 Cloudflare site is unaffected if anything is wrong.
 
-- [ ] **Start the app with PM2**:
+- [X] **Start the app with PM2**:
   ```bash
   cd /home/deploy/upq
   pm2 start ecosystem.config.js
   pm2 save
   ```
-- [ ] **Check the app is running**:
+- [X] **Check the app is running**:
   ```bash
   pm2 status
   curl http://localhost:3500/health   # or whatever health endpoint the app exposes
   ```
-- [ ] **Test DB connectivity** — confirm the app logs show "connected to MySQL" on startup.
+- [X] **Test DB connectivity** — confirm the app logs show "connected to MySQL" on startup.
 - [ ] **Test the app via IP** (HTTP only at this stage — Caddy needs the real domain for HTTPS):
   `http://<app_ipv4>` — you should see the UpQ app or a redirect.
 - [ ] **Trigger a manual test deploy** — push a trivial commit to `main` and confirm
