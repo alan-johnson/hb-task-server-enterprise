@@ -50,7 +50,7 @@ class GoogleTasksProvider {
     return oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: ['https://www.googleapis.com/auth/tasks'],
-      prompt: 'select_account'
+      prompt: 'consent'
     });
   }
 
