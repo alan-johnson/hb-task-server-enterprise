@@ -63,8 +63,10 @@ jobs:
             FLYWAY_DIR="/home/deploy/flyway"
             FLYWAY_VERSION="10.17.0"
             if [ ! -f "${FLYWAY_DIR}/flyway" ]; then
+              rm -rf "${FLYWAY_DIR}"
+              mkdir -p "${FLYWAY_DIR}"
               curl -s "https://download.red-gate.com/maven/release/com/redgate/flyway/flyway-commandline/${FLYWAY_VERSION}/flyway-commandline-${FLYWAY_VERSION}-linux-x64.tar.gz" \
-                | tar xz -C /home/deploy --one-top-level=flyway --strip-components=1
+                | tar xz -C "${FLYWAY_DIR}" --strip-components=1
             fi
             "${FLYWAY_DIR}/flyway" \
               -url="${FLYWAY_URL}" \
