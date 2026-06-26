@@ -47,15 +47,30 @@ jobs:
     needs: deploy-app          # only migrate after code is live
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Run Flyway migrations
-        uses: docker://flyway/flyway:10.17.0
+      - name: Run Flyway migrations on droplet
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          FLYWAY_URL: ${{ secrets.FLYWAY_URL }}
+          FLYWAY_USER: ${{ secrets.FLYWAY_USER }}
+          FLYWAY_PASSWORD: ${{ secrets.FLYWAY_PASSWORD }}
         with:
-          args: >
-            -url="${{ secrets.FLYWAY_URL }}"
-            -user="${{ secrets.FLYWAY_USER }}"
-            -password="${{ secrets.FLYWAY_PASSWORD }}"
-            -locations=filesystem:./upq_terraform_files/upq-infra/migrations
-            -baselineOnMigrate=true
-            migrate
+          host: ${{ secrets.SSH_HOST }}
+          username: deploy
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: FLYWAY_URL,FLYWAY_USER,FLYWAY_PASSWORD
+          script: |
+            set -euo pipefail
+            FLYWAY_DIR="/home/deploy/flyway"
+            FLYWAY_VERSION="10.17.0"
+            if [ ! -f "${FLYWAY_DIR}/flyway" ]; then
+              mkdir -p "${FLYWAY_DIR}"
+              curl -s "https://download.red-gate.com/maven/release/com/redgate/flyway/flyway-commandline/${FLYWAY_VERSION}/flyway-commandline-${FLYWAY_VERSION}-linux-x64.tar.gz" \
+                | tar xz -C /home/deploy --strip-components=1 --one-top-level=flyway
+            fi
+            "${FLYWAY_DIR}/flyway" \
+              -url="${FLYWAY_URL}" \
+              -user="${FLYWAY_USER}" \
+              -password="${FLYWAY_PASSWORD}" \
+              -locations="filesystem:/home/deploy/upq/upq_terraform_files/upq-infra/migrations" \
+              -baselineOnMigrate=true \
+              migrate
