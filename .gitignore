@@ -38,6 +38,7 @@ MARKETING.md
 SECURITY-AUDIT.md
 VPS_PLAN.md
 MIGRATION_PLAN.md
+maintenance.md
 
 #infrastructure
 upq_terraform_files.zip
