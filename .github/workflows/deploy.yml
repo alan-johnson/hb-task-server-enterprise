@@ -53,6 +53,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - run: npm ci
       - name: Read-only smoke test against production
         env:
           BASE_URL:  https://tasks.handsbreadth.com
