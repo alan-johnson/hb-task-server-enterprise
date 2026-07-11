@@ -1,0 +1,35 @@
+name: uptime
+
+# External health check — runs on GitHub's own runners, independent of the
+# droplet, so it still catches a total outage (not just an app-level crash
+# that leaves SSH reachable). A failed run triggers GitHub's built-in
+# workflow-failure notification to the repo owner — no extra secrets, no
+# SMTP config, no third-party signup.
+#
+# Caveat: GitHub documents that scheduled workflows can be delayed (or
+# occasionally skipped) during periods of high platform load, and 5 minutes
+# is the shortest supported cron granularity. This is a solid free baseline,
+# not a substitute for a dedicated uptime service if you need SMS alerts,
+# multi-region checks, or guaranteed-interval monitoring.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: uptime-check
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check /health
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://tasks.handsbreadth.com/health)
+          echo "HTTP status: $code"
+          if [ "$code" != "200" ]; then
+            echo "::error::Health check failed with status $code"
+            exit 1
+          fi
