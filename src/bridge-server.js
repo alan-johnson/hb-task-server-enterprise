@@ -81,46 +81,54 @@ class BridgeServer {
       let msg;
       try { msg = JSON.parse(data); } catch { return; }
 
-      // --- Auth handshake ---
-      if (!userId) {
-        if (msg.type !== 'auth' || !msg.apiKey) {
-          ws.close(4002, 'Expected auth message');
+      // Everything below runs outside any HTTP request/response cycle — an
+      // uncaught error here would reject this async event-handler's promise
+      // with no listener attached, crashing the whole process (Node's default
+      // for unhandled rejections) for every connected user, not just this one.
+      try {
+        // --- Auth handshake ---
+        if (!userId) {
+          if (msg.type !== 'auth' || !msg.apiKey) {
+            ws.close(4002, 'Expected auth message');
+            return;
+          }
+          clearTimeout(authTimeout);
+
+          const resolvedUserId = await this._getUserIdByApiKey(msg.apiKey).catch(() => null);
+          if (ws.readyState !== WebSocket.OPEN) return;
+
+          if (!resolvedUserId) {
+            ws.send(JSON.stringify({ type: 'auth_error', error: 'Invalid API key' }));
+            ws.close(4003, 'Invalid API key');
+            return;
+          }
+
+          // Replace any existing connection for this user
+          const existing = this.connections.get(resolvedUserId);
+          if (existing) existing.ws.close(4000, 'Replaced by new connection');
+
+          userId = resolvedUserId;
+          this.connections.set(userId, { ws, pending });
+          ws.send(JSON.stringify({ type: 'auth_ok', userId }));
+          console.log(`Bridge: user ${userId} connected`);
           return;
         }
-        clearTimeout(authTimeout);
 
-        const resolvedUserId = await this._getUserIdByApiKey(msg.apiKey).catch(() => null);
-        if (ws.readyState !== WebSocket.OPEN) return;
-
-        if (!resolvedUserId) {
-          ws.send(JSON.stringify({ type: 'auth_error', error: 'Invalid API key' }));
-          ws.close(4003, 'Invalid API key');
+        // --- Response from local server ---
+        if (msg.type === 'response') {
+          const req = pending.get(msg.id);
+          if (!req) return;
+          clearTimeout(req.timer);
+          pending.delete(msg.id);
+          if (msg.error) req.reject(new Error(msg.error));
+          else req.resolve(msg.result);
           return;
         }
 
-        // Replace any existing connection for this user
-        const existing = this.connections.get(resolvedUserId);
-        if (existing) existing.ws.close(4000, 'Replaced by new connection');
-
-        userId = resolvedUserId;
-        this.connections.set(userId, { ws, pending });
-        ws.send(JSON.stringify({ type: 'auth_ok', userId }));
-        console.log(`Bridge: user ${userId} connected`);
-        return;
+        if (msg.type === 'pong') return;
+      } catch (err) {
+        console.error(`Bridge: error handling message${userId ? ` for user ${userId}` : ''}:`, err.message);
       }
-
-      // --- Response from local server ---
-      if (msg.type === 'response') {
-        const req = pending.get(msg.id);
-        if (!req) return;
-        clearTimeout(req.timer);
-        pending.delete(msg.id);
-        if (msg.error) req.reject(new Error(msg.error));
-        else req.resolve(msg.result);
-        return;
-      }
-
-      if (msg.type === 'pong') return;
     });
 
     ws.on('close', () => {

@@ -3,6 +3,7 @@ const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 const path = require('path');
 const TOML = require('@iarna/toml');
@@ -106,6 +107,12 @@ function classifyTask(task, rules) {
 }
 
 const app = express();
+// Production runs behind Caddy on the same host (see Caddyfile), which sets
+// X-Forwarded-For. Without this, req.ip always resolves to Caddy's local
+// address, so IP-based rate limiting would bucket every real client together
+// instead of individually. Trusting exactly one hop (not a wildcard) keeps
+// spoofed X-Forwarded-For headers from the public internet from being honored.
+app.set('trust proxy', 1);
 const API_PORT = process.env.API_PORT || process.env.PORT || 3500;
 // Base URL of the web server — used to redirect browsers after OAuth callbacks.
 // If empty, relative redirects are used (works when this server is behind a proxy).
@@ -414,7 +421,28 @@ app.get('/api/providers', (req, res) => {
 // Authentication Routes
 // ============================================
 
-app.post('/auth/register', async (req, res) => {
+// Credential stuffing / brute force: keyed by IP, keeps a wrong password from
+// being guessable at scale without punishing normal mistyped-password retries.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again later.' },
+});
+
+// Covers registration, resend-verification, and forgot-password — all three
+// trigger an outbound email and/or reveal account existence, so both abuse
+// and enumeration-by-volume are worth throttling the same way.
+const authActionLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please try again later.' },
+});
+
+app.post('/auth/register', authActionLimiter, async (req, res) => {
   try {
     const { username, password, email } = req.body;
 
@@ -447,7 +475,7 @@ app.post('/auth/register', async (req, res) => {
   }
 });
 
-app.post('/auth/login', async (req, res) => {
+app.post('/auth/login', loginLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
 
@@ -500,7 +528,7 @@ app.get('/auth/verify-email', async (req, res) => {
 });
 
 // POST /auth/resend-verification — resend the verification email (no auth required)
-app.post('/auth/resend-verification', async (req, res) => {
+app.post('/auth/resend-verification', authActionLimiter, async (req, res) => {
   const { username } = req.body;
   if (!username) return res.status(400).json({ error: 'username is required' });
 
@@ -528,7 +556,7 @@ app.post('/auth/resend-verification', async (req, res) => {
 });
 
 // POST /auth/forgot-password — request a password-reset email (no auth required)
-app.post('/auth/forgot-password', async (req, res) => {
+app.post('/auth/forgot-password', authActionLimiter, async (req, res) => {
   // Always respond with the same message to avoid leaking whether an email is registered
   const generic = { message: 'If that email is registered, a reset link has been sent.' };
   try {

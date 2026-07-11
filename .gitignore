@@ -39,6 +39,7 @@ SECURITY-AUDIT.md
 VPS_PLAN.md
 MIGRATION_PLAN.md
 maintenance.md
+PRODUCTION_READINESS.md
 
 #infrastructure
 upq_terraform_files.zip
