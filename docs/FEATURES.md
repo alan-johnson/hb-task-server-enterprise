@@ -306,14 +306,17 @@ Subscription management is handled by **Stripe Checkout**. No payment card data 
 
 | Plan | Price | Detail |
 |---|---|---|
-| Monthly | $8 / month | Cancel anytime — uses `STRIPE_PRICE_ID_MONTHLY` |
-| Annual | $85 / year | ~$7.08/month; saves $11/year — uses `STRIPE_PRICE_ID_ANNUAL` |
-| Free Trial | $0 for N days | Configurable via `STRIPE_TRIAL_DAYS` (default 14); monthly price applies after trial |
+| Monthly | $8 / month | 30-day free trial, then $8/mo — uses `STRIPE_PRICE_ID_MONTHLY` |
+| Annual | $85 / year | ~$7.08/month; saves $11/year; no trial — uses `STRIPE_PRICE_ID_ANNUAL` |
+
+The Monthly trial is configured directly on the Stripe Price object itself
+(`recurring.trial_period_days`), not in application code — any Checkout Session
+using that price automatically includes the trial.
 
 ### Checkout Flow
 
 1. User selects a plan on `/pricing.html` and clicks Subscribe
-2. Server creates a Stripe Checkout session with the selected price (and `trial_period_days` for the trial plan)
+2. Server creates a Stripe Checkout session with the selected price
 3. User is redirected to Stripe's hosted checkout page to enter payment details
 4. On success, Stripe redirects back to `/success.html?session_id=…`
 5. The success page calls `/billing/session-info` to display the confirmed plan and renewal/trial-end date
@@ -578,7 +581,6 @@ Rules are defined server-wide in `config/classification.toml` and can be overrid
 | `STRIPE_WEBHOOK_SECRET` | No | — | Stripe webhook signing secret |
 | `STRIPE_PRICE_ID_MONTHLY` | No | falls back to `STRIPE_PRICE_ID` | Monthly plan price ID |
 | `STRIPE_PRICE_ID_ANNUAL` | No | — | Annual plan price ID |
-| `STRIPE_TRIAL_DAYS` | No | `14` | Free trial length in days |
 | `SMTP_HOST` | No | — | SMTP server; if absent, verify URLs are logged to console |
 | `SMTP_PORT` | No | `587` | SMTP port |
 | `SMTP_SECURE` | No | `false` | `true` for port 465 implicit TLS |

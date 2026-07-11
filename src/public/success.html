@@ -139,14 +139,9 @@
         localStorage.setItem('sub_just_activated', Date.now());
         const data = await res.json();
 
-        let planLabel;
-        if (data.plan === 'annual') {
-          planLabel = 'Annual subscription';
-        } else if (data.plan === 'trial') {
-          planLabel = '14-day free trial';
-        } else {
-          planLabel = 'Monthly subscription';
-        }
+        // Trial length isn't hard-coded here — the "Trial ends" row below
+        // reads the actual date from Stripe, so it can't drift out of sync.
+        const planLabel = data.plan === 'annual' ? 'Annual subscription' : 'Monthly subscription';
         document.getElementById('plan-label').textContent = planLabel;
 
         const periodRow = document.getElementById('period-row');

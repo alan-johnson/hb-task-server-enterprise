@@ -181,7 +181,7 @@
         <div class="plan-name">Monthly</div>
         <div class="plan-price">$8</div>
         <div class="plan-period">per month</div>
-        <div class="plan-note">Cancel anytime</div>
+        <div class="plan-note">30-day free trial, then $8/mo</div>
       </div>
 
       <div class="plan-card selected" id="plan-annual" onclick="selectPlan('annual')">
@@ -190,13 +190,6 @@
         <div class="plan-price">$85</div>
         <div class="plan-period">per year</div>
         <div class="plan-note">Save $11/year</div>
-      </div>
-
-      <div class="plan-card" id="plan-trial" onclick="selectPlan('trial')">
-        <div class="plan-name">Free Trial</div>
-        <div class="plan-price">$0</div>
-        <div class="plan-period">for 30 days</div>
-        <div class="plan-note">Then $8/mo</div>
       </div>
     </div>
 
@@ -233,12 +226,12 @@
 
     function selectPlan(plan) {
       selectedPlan = plan;
-      ['monthly', 'annual', 'trial'].forEach(p => {
+      ['monthly', 'annual'].forEach(p => {
         document.getElementById(`plan-${p}`).classList.toggle('selected', p === plan);
       });
       const btn = document.getElementById('subscribe-btn');
-      btn.textContent = plan === 'trial' ? 'Start Free Trial' : 'Subscribe Now';
-      document.getElementById('trial-note').style.display = plan === 'trial' ? '' : 'none';
+      btn.textContent = plan === 'monthly' ? 'Start Free Trial' : 'Subscribe Now';
+      document.getElementById('trial-note').style.display = plan === 'monthly' ? '' : 'none';
     }
 
     async function startCheckout() {
@@ -263,7 +256,7 @@
         err.textContent = e.message;
         err.style.display = 'block';
         btn.disabled = false;
-        btn.textContent = selectedPlan === 'trial' ? 'Start Free Trial' : 'Subscribe Now';
+        btn.textContent = selectedPlan === 'monthly' ? 'Start Free Trial' : 'Subscribe Now';
       }
     }
   </script>

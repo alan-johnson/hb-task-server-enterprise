@@ -1231,13 +1231,14 @@ app.post('/billing/create-checkout-session', authService.requireAuth(), async (r
 
   const { plan = 'monthly' } = req.body;
 
-  // Resolve price ID based on plan
+  // Resolve price ID based on plan.
+  // The monthly price has a 30-day trial configured directly on it in Stripe
+  // (recurring.trial_period_days); the annual price has no trial by design.
   let priceId;
   if (plan === 'annual') {
     priceId = process.env.STRIPE_PRICE_ID_ANNUAL;
     if (!priceId) return res.status(503).json({ error: 'Annual price not configured (STRIPE_PRICE_ID_ANNUAL)' });
   } else {
-    // monthly and trial both use the monthly price
     priceId = process.env.STRIPE_PRICE_ID_MONTHLY || process.env.STRIPE_PRICE_ID;
     if (!priceId) return res.status(503).json({ error: 'STRIPE_PRICE_ID not configured' });
   }
@@ -1255,11 +1256,6 @@ app.post('/billing/create-checkout-session', authService.requireAuth(), async (r
       metadata: { userId: req.user.userId, plan },
       allow_promotion_codes: true,
     };
-
-    if (plan === 'trial') {
-      const trialDays = parseInt(process.env.STRIPE_TRIAL_DAYS || '14', 10);
-      sessionParams.subscription_data = { trial_period_days: trialDays };
-    }
 
     if (user.stripeCustomerId) {
       sessionParams.customer = user.stripeCustomerId;
