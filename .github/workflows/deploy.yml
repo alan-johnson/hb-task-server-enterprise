@@ -12,6 +12,8 @@ name: deploy
 #   FLYWAY_URL         jdbc:mysql://<private-host>:<port>/upq?...   (use PRIVATE host)
 #   FLYWAY_USER        upq_app
 #   FLYWAY_PASSWORD    app DB password (from terraform output)
+#   TEST_USER          username for the read-only post-deploy smoke test (test/test-integration.js)
+#   TEST_PASS          password for TEST_USER — must have Microsoft + Google already connected
 
 on:
   push:
@@ -43,8 +45,23 @@ jobs:
             pm2 reload ecosystem.config.js --update-env || pm2 start ecosystem.config.js
             pm2 save
 
+  smoke-test:
+    needs: deploy-app          # tests the live server, so it can only run after deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Read-only smoke test against production
+        env:
+          BASE_URL:  https://tasks.handsbreadth.com
+          TEST_USER: ${{ secrets.TEST_USER }}
+          TEST_PASS: ${{ secrets.TEST_PASS }}
+        run: node test/test-integration.js
+
   migrate-db:
-    needs: deploy-app          # only migrate after code is live
+    needs: smoke-test          # only migrate after code is live AND verified healthy
     runs-on: ubuntu-latest
     steps:
       - name: Run Flyway migrations on droplet
