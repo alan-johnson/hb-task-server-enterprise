@@ -236,7 +236,7 @@
       <h2>Apple Reminders Bridge Key</h2>
       <p style="color:#555;margin:.25rem 0 1rem">Copy this key — it will not be shown again. Add both lines to your <code>hb-task-server</code> <code>.env</code> file, then restart the server.</p>
       <div style="background:#f8f8f8;border:1px solid #e0e0e0;border-radius:6px;padding:1rem;font-family:monospace;font-size:.85rem;line-height:1.8;word-break:break-all">
-        <div>BRIDGE_URL=ws://<span id="bridge-url-host">your-upq-domain.com</span>/bridge</div>
+        <div>BRIDGE_URL=<span id="bridge-url-scheme">wss</span>://<span id="bridge-url-host">your-upq-domain.com</span>/bridge</div>
         <div>BRIDGE_API_KEY=<span id="apple-key-display" style="color:#1a73e8"></span></div>
       </div>
       <p style="font-size:.85rem;color:#888;margin:.75rem 0 0">Once <code>hb-task-server</code> is running with this key, this page will update automatically.</p>
@@ -414,6 +414,7 @@
         const res = await fetch('/auth/bridge/key', { method: 'POST', headers: authHeaders() });
         const data = await res.json();
         if (!res.ok) { showBanner(data.error || 'Failed to generate key', 'error'); return; }
+        document.getElementById('bridge-url-scheme').textContent = window.location.protocol === 'https:' ? 'wss' : 'ws';
         document.getElementById('bridge-url-host').textContent = window.location.host;
         document.getElementById('apple-key-display').textContent = data.apiKey;
         document.getElementById('apple-key-modal').style.display = 'flex';
