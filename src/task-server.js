@@ -48,7 +48,7 @@ function stripePeriodEnd(sub) {
   return sub?.items?.data?.[0]?.current_period_end ?? sub?.current_period_end ?? null;
 }
 
-const { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail, verifySmtp, sendTrialEndingWarningEmail, sendPaymentFailedEmail, sendSubscriptionExpiredEmail } = require('./emailService');
+const { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail, verifySmtp, sendTrialEndingWarningEmail, sendPaymentFailedEmail, sendSubscriptionExpiredEmail, sendAdminAlertEmail } = require('./emailService');
 const { runSubscriptionMaintenance } = require('./jobs/subscriptionMaintenance');
 
 // Load classification config from TOML (once at startup)
@@ -142,6 +142,14 @@ const allowedOrigin = process.env.ALLOWED_ORIGIN;
 if (!allowedOrigin) throw new Error('ALLOWED_ORIGIN env var is required');
 app.use(cors({ origin: allowedOrigin }));
 
+// Tracks consecutive Stripe webhook signature failures across requests so a
+// stale/mismatched STRIPE_WEBHOOK_SECRET (e.g. .env edited but process not yet
+// restarted — see 2026-07-11 incident) triggers an admin alert instead of
+// failing silently until someone happens to read the logs.
+const WEBHOOK_FAILURE_ALERT_THRESHOLD = 3;
+let webhookSignatureFailureCount = 0;
+let webhookAlertSent = false;
+
 // Stripe webhook needs raw body — must be registered before bodyParser.json()
 app.post('/billing/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   if (!stripe) return res.status(503).json({ error: 'Billing not configured' });
@@ -152,8 +160,21 @@ app.post('/billing/webhook', express.raw({ type: 'application/json' }), async (r
   let event;
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    webhookSignatureFailureCount = 0;
+    webhookAlertSent = false;
   } catch (err) {
     console.error('Stripe webhook signature error:', err.message);
+    webhookSignatureFailureCount++;
+    if (webhookSignatureFailureCount >= WEBHOOK_FAILURE_ALERT_THRESHOLD && !webhookAlertSent) {
+      webhookAlertSent = true;
+      sendAdminAlertEmail({
+        subject: 'Stripe webhook signature failures',
+        message: `${webhookSignatureFailureCount} consecutive Stripe webhook deliveries have failed signature ` +
+          `verification. STRIPE_WEBHOOK_SECRET in .env likely doesn't match the live webhook endpoint — check ` +
+          `whether .env was edited without restarting the process (dotenv only loads at boot), or whether the ` +
+          `secret was rolled in the Stripe Dashboard. Last error: ${err.message}`,
+      }).catch(e => console.error('Failed to send webhook-failure admin alert:', e.message));
+    }
     return res.status(400).json({ error: `Webhook error: ${err.message}` });
   }
 
@@ -271,6 +292,15 @@ userService.initialize().then(() => {
     console.log(`Default provider: ${process.env.DEFAULT_PROVIDER || 'microsoft'}`);
     console.log(`CORS origin:      ${allowedOrigin}`);
     console.log(`Bridge WebSocket: ws://localhost:${API_PORT}/bridge`);
+    // .env is only read once at boot (dotenv.config() above) — editing the file on disk
+    // has no effect until the process restarts. Logging a fingerprint here makes it
+    // possible to confirm a running process actually picked up a just-edited secret,
+    // instead of silently rejecting webhooks with a stale one (see 2026-07-11 incident).
+    if (process.env.STRIPE_WEBHOOK_SECRET) {
+      console.log(`Stripe webhook secret loaded: ...${process.env.STRIPE_WEBHOOK_SECRET.slice(-4)}`);
+    } else {
+      console.warn('STRIPE_WEBHOOK_SECRET not set — Stripe webhooks will be rejected');
+    }
     verifySmtp();
   });
 }).catch(err => {

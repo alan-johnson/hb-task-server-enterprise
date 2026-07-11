@@ -466,4 +466,29 @@ async function sendSubscriptionExpiredEmail({ to, username, resubscribeUrl }) {
   });
 }
 
-module.exports = { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail, verifySmtp, sendTrialEndingWarningEmail, sendPaymentFailedEmail, sendSubscriptionExpiredEmail };
+/**
+ * Send an operational alert to the admin (not a user-facing email).
+ * Recipient is ADMIN_ALERT_EMAIL if set, otherwise falls back to SMTP_USER
+ * so alerts land somewhere by default even without extra configuration.
+ */
+async function sendAdminAlertEmail({ subject, message }) {
+  if (!process.env.SMTP_HOST) {
+    console.warn(`[emailService] SMTP not configured — skipping admin alert: ${subject}`);
+    return;
+  }
+  const to = (process.env.ADMIN_ALERT_EMAIL || process.env.SMTP_USER || '').trim();
+  if (!to) {
+    console.warn(`[emailService] No ADMIN_ALERT_EMAIL or SMTP_USER configured — skipping admin alert: ${subject}`);
+    return;
+  }
+
+  const transporter = createTransporter();
+  await transporter.sendMail({
+    from: resolveFrom(),
+    to,
+    subject: `[UpQ Alert] ${subject}`,
+    text: message,
+  });
+}
+
+module.exports = { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail, verifySmtp, sendTrialEndingWarningEmail, sendPaymentFailedEmail, sendSubscriptionExpiredEmail, sendAdminAlertEmail };
