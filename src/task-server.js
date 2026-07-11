@@ -606,6 +606,53 @@ app.get('/auth/me', authService.requireAuth(), async (req, res) => {
   }
 });
 
+// DELETE /auth/me — permanently delete the account and all associated data.
+// Requires the current password as re-confirmation. Cancels any active Stripe
+// subscription immediately (not at period end), disconnects an active Apple
+// Reminders bridge session, then deletes the user row — user_credentials and
+// bridge_api_keys cascade via ON DELETE CASCADE.
+app.delete('/auth/me', authService.requireAuth(), async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ error: 'Password is required to delete your account.' });
+
+    const userId = req.user.userId;
+    const validPassword = await userService.verifyPassword(userId, password);
+    if (!validPassword) return res.status(401).json({ error: 'Incorrect password.' });
+
+    if (stripe) {
+      const user = await userService.getUser(userId);
+      if (user?.stripeCustomerId) {
+        const subscriptions = await stripe.subscriptions.list({ customer: user.stripeCustomerId, status: 'all', limit: 10 });
+        for (const sub of subscriptions.data) {
+          if (['active', 'trialing', 'past_due'].includes(sub.status)) {
+            await stripe.subscriptions.cancel(sub.id)
+              .catch(err => console.error(`Failed to cancel Stripe subscription ${sub.id} during account deletion for user ${userId}:`, err.message));
+          }
+        }
+      }
+    }
+
+    const conn = bridgeServer.connections.get(userId);
+    if (conn) conn.ws.close(4006, 'Account deleted');
+
+    cache.deletePrefix(`lists:${userId}:`);
+    cache.deletePrefix(`tasks:${userId}:`);
+    cache.deletePrefix(`counts:${userId}:`);
+    cache.deletePrefix(`status:${userId}:`);
+    cache.delete(`unified:${userId}`);
+    cache.delete(`lists:all:${userId}`);
+
+    const deleted = await userService.deleteUser(userId);
+    if (!deleted) return res.status(404).json({ error: 'User not found' });
+
+    res.json({ success: true, message: 'Account deleted.' });
+  } catch (error) {
+    console.error(`/auth/me DELETE error for user ${req.user.userId}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/auth/refresh', authService.requireAuth(), (req, res) => {
   const token = authService.generateToken(req.user.userId, req.user.username);
   res.json({ token });

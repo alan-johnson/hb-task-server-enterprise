@@ -170,6 +170,17 @@
       <div class="provider-actions" id="sub-actions"></div>
     </div>
 
+    <div class="section-title" style="margin-top:2rem">Danger Zone</div>
+    <div class="provider-card" id="danger-zone-card">
+      <div class="provider-info">
+        <div class="provider-name">Delete Account</div>
+        <div class="provider-desc">Permanently deletes your account, connected providers, and Apple bridge key. Any active subscription is canceled immediately. This cannot be undone.</div>
+      </div>
+      <div class="provider-actions">
+        <button class="btn btn-danger btn-sm" onclick="openDeleteAccountModal()">Delete Account</button>
+      </div>
+    </div>
+
     <p style="margin-top:2rem;font-size:.8rem;color:#999;text-align:center">
       <a href="/privacy" style="color:#999">Privacy Policy</a> &nbsp;·&nbsp;
       <a href="/terms" style="color:#999">Terms of Service</a>
@@ -213,6 +224,21 @@
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeCancelModal()">Keep My Subscription</button>
         <button class="btn btn-danger" id="confirm-cancel-btn" onclick="confirmCancellation()">Confirm Cancellation</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Delete account modal ── -->
+  <div id="delete-account-modal" class="modal-overlay" style="display:none" onclick="handleDeleteAccountOverlayClick(event)">
+    <div class="modal-box">
+      <h2>Delete Account</h2>
+      <p style="color:#555;margin:.25rem 0 1.25rem">This permanently deletes your account, connected providers, and Apple bridge key, and cancels any active subscription immediately. This cannot be undone.</p>
+      <label style="display:block;font-size:.85rem;color:#444;margin-bottom:.4rem">Enter your password to confirm</label>
+      <input type="password" id="delete-account-password" style="width:100%;box-sizing:border-box;margin-bottom:.5rem;padding:.6rem .75rem;border:1px solid #ddd;border-radius:6px;font-size:.95rem" autocomplete="current-password">
+      <div id="delete-account-error" style="color:#c0392b;font-size:.85rem;margin-bottom:.5rem;display:none"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeDeleteAccountModal()">Cancel</button>
+        <button class="btn btn-danger" id="confirm-delete-account-btn" onclick="confirmDeleteAccount()">Delete My Account</button>
       </div>
     </div>
   </div>
@@ -718,6 +744,52 @@
       } finally {
         btn.disabled    = false;
         btn.textContent = 'Confirm Cancellation';
+      }
+    }
+
+    function openDeleteAccountModal() {
+      document.getElementById('delete-account-password').value = '';
+      document.getElementById('delete-account-error').style.display = 'none';
+      document.getElementById('delete-account-modal').style.display = 'flex';
+    }
+
+    function closeDeleteAccountModal() {
+      document.getElementById('delete-account-modal').style.display = 'none';
+    }
+
+    function handleDeleteAccountOverlayClick(e) {
+      if (e.target === document.getElementById('delete-account-modal')) closeDeleteAccountModal();
+    }
+
+    async function confirmDeleteAccount() {
+      const password = document.getElementById('delete-account-password').value;
+      const errEl = document.getElementById('delete-account-error');
+      errEl.style.display = 'none';
+      if (!password) { errEl.textContent = 'Password is required.'; errEl.style.display = 'block'; return; }
+
+      const btn = document.getElementById('confirm-delete-account-btn');
+      btn.disabled    = true;
+      btn.textContent = 'Deleting…';
+      try {
+        const res = await fetch('/auth/me', {
+          method: 'DELETE',
+          headers: authHeaders(),
+          body: JSON.stringify({ password })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          errEl.textContent = data.error || 'Failed to delete account.';
+          errEl.style.display = 'block';
+          return;
+        }
+        localStorage.clear();
+        window.location.href = '/login.html';
+      } catch {
+        errEl.textContent = 'Could not reach the server.';
+        errEl.style.display = 'block';
+      } finally {
+        btn.disabled    = false;
+        btn.textContent = 'Delete My Account';
       }
     }
 

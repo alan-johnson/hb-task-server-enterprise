@@ -101,7 +101,7 @@ class UserService {
     const cached = await cache.get(`user:id:${userId}`);
     if (cached) {
       const u = JSON.parse(cached);
-      return { userId: u.userId, username: u.username, email: u.email, defaultProvider: u.defaultProvider, showCompleted: u.showCompleted };
+      return { userId: u.userId, username: u.username, email: u.email, defaultProvider: u.defaultProvider, showCompleted: u.showCompleted, stripeCustomerId: u.stripeCustomerId, subscriptionStatus: u.subscriptionStatus, subscriptionPeriodEnd: u.subscriptionPeriodEnd, trialEnd: u.trialEnd, trialWarningSentAt: u.trialWarningSentAt };
     }
 
     const result = await pool.query(
@@ -285,6 +285,25 @@ class UserService {
     );
     await cache.del(`user:id:${row.user_id}`, `user:name:${row.username}`);
     return { userId: row.user_id, username: row.username };
+  }
+
+  // ---------- delete account ----------
+
+  async verifyPassword(userId, password) {
+    const result = await pool.query('SELECT password_hash FROM users WHERE user_id = ?', [userId]);
+    if (!result.rows[0]) return false;
+    return bcrypt.compare(password, result.rows[0].password_hash);
+  }
+
+  // user_credentials and bridge_api_keys cascade via ON DELETE CASCADE (see
+  // V1__initial_schema.sql) — deleting the users row is sufficient at the DB level.
+  async deleteUser(userId) {
+    const result = await pool.query('SELECT username FROM users WHERE user_id = ?', [userId]);
+    if (!result.rows[0]) return false;
+    const { username } = result.rows[0];
+    await pool.query('DELETE FROM users WHERE user_id = ?', [userId]);
+    await cache.del(`user:id:${userId}`, `user:name:${username}`);
+    return true;
   }
 
   // ---------- private helpers ----------
