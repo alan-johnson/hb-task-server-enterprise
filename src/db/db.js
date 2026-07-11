@@ -18,6 +18,14 @@ const mysqlPool = mysql.createPool({
   ...sslOptions,
 });
 
+// The pool is an EventEmitter and can emit 'error' for background connection
+// issues not tied to any in-flight query (e.g. the managed DB server dropping
+// an idle connection). With zero listeners, Node's EventEmitter throws on an
+// 'error' event — an uncaught exception that crashes the whole process. This
+// is not a rare edge case: DigitalOcean's managed MySQL cycles idle
+// connections periodically, so this will eventually fire in normal operation.
+mysqlPool.on('error', (err) => console.error('MySQL pool error:', err.message));
+
 // Thin wrapper that mimics the pg Pool API used throughout the app:
 //   pool.query(sql, params) → { rows, rowCount }
 // SELECT queries:  rows = array of row objects, rowCount = rows.length
