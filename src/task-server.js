@@ -538,9 +538,14 @@ app.post('/auth/reset-password', async (req, res) => {
 });
 
 app.get('/auth/me', authService.requireAuth(), async (req, res) => {
-  const user = await userService.getUser(req.user.userId);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json({ user });
+  try {
+    const user = await userService.getUser(req.user.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ user });
+  } catch (error) {
+    console.error(`/auth/me error for user ${req.user.userId}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.post('/auth/refresh', authService.requireAuth(), (req, res) => {
@@ -576,12 +581,17 @@ app.get('/auth/providers/status', authService.requireAuth(), async (req, res) =>
 
 // Returns whether credentials are stored for each provider — no live API call.
 app.get('/auth/providers/authorized', authService.requireAuth(), async (req, res) => {
-  const userId = req.user.userId;
-  const [msCreds, gCreds] = await Promise.all([
-    userService.getCredentials(userId, 'microsoft'),
-    userService.getCredentials(userId, 'google'),
-  ]);
-  res.json({ microsoft: !!msCreds, google: !!gCreds });
+  try {
+    const userId = req.user.userId;
+    const [msCreds, gCreds] = await Promise.all([
+      userService.getCredentials(userId, 'microsoft'),
+      userService.getCredentials(userId, 'google'),
+    ]);
+    res.json({ microsoft: !!msCreds, google: !!gCreds });
+  } catch (error) {
+    console.error(`/auth/providers/authorized error for user ${req.user.userId}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ============================================
@@ -904,79 +914,84 @@ app.post('/auth/me/classification/parse', authService.requireAuth(), async (req,
 const CLASSIFICATION_ORDER = { now: 0, next: 1, later: 2 };
 
 app.get('/api/tasks/unified', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
-  const userId = req.user.userId;
-  const sortByClassification = req.query.sort === 'classification';
-  const cacheKey = `unified:${userId}`;
-  const cached = cache.get(cacheKey);
-  if (cached) {
+  try {
+    const userId = req.user.userId;
+    const sortByClassification = req.query.sort === 'classification';
+    const cacheKey = `unified:${userId}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      if (sortByClassification) {
+        const sorted = [...cached.tasks].sort((a, b) =>
+          (CLASSIFICATION_ORDER[a.classification] ?? 3) - (CLASSIFICATION_ORDER[b.classification] ?? 3)
+        );
+        return res.json({ ...cached, tasks: sorted });
+      }
+      return res.json(cached);
+    }
+
+    // Determine which providers are connected for this user
+    const providerNames  = [];
+    const providerErrors = [];
+
+    for (const p of ['microsoft', 'google']) {
+      const creds = await userService.getCredentials(userId, p);
+      if (creds) providerNames.push(p);
+    }
+    if (bridgeServer.isConnected(userId)) {
+      providerNames.push('apple');
+    } else if (await userService.hasBridgeApiKey(userId)) {
+      providerErrors.push({ provider: 'apple', error: 'Bridge not connected' });
+    }
+
+    const allTasks = [];
+
+    await Promise.all(providerNames.map(async (providerName) => {
+      try {
+        const { provider } = getProviderForUser({
+          ...req, query: { provider: providerName }, body: {}
+        });
+        await initializeProvider(provider, providerName, userId);
+        const lists = await provider.getLists();
+
+        await Promise.all(lists.map(async (list) => {
+          try {
+            const tasks = await provider.getTasks(list.id);
+            for (const task of tasks) {
+              allTasks.push({ ...task, provider: providerName, listId: list.id, listName: list.name });
+            }
+          } catch (err) {
+            console.error(`unified: failed to load tasks for list ${list.id} (${providerName}):`, err.message);
+            if (!providerErrors.find(e => e.provider === providerName)) {
+              providerErrors.push({ provider: providerName, error: err.message });
+            }
+          }
+        }));
+      } catch (err) {
+        console.error(`unified: failed to initialize provider ${providerName} for user ${userId}:`, err.message);
+        providerErrors.push({ provider: providerName, error: err.message });
+      }
+    }));
+
+    const rules    = await userService.getClassificationRules(userId) || classificationConfig;
+    const annotated = allTasks.map(t => ({ ...t, classification: classifyTask(t, rules) }));
+    const result   = { user: req.user.username, tasks: annotated };
+
+    // Only cache complete results — partial results should retry on next request
+    if (providerErrors.length === 0) cache.set(cacheKey, result, TTL.tasks);
+
+    const response = providerErrors.length ? { ...result, providerErrors } : result;
+
     if (sortByClassification) {
-      const sorted = [...cached.tasks].sort((a, b) =>
+      const sorted = [...annotated].sort((a, b) =>
         (CLASSIFICATION_ORDER[a.classification] ?? 3) - (CLASSIFICATION_ORDER[b.classification] ?? 3)
       );
-      return res.json({ ...cached, tasks: sorted });
+      return res.json({ ...response, tasks: sorted });
     }
-    return res.json(cached);
+    res.json(response);
+  } catch (error) {
+    console.error(`/api/tasks/unified error for user ${req.user.userId}:`, error.message);
+    res.status(500).json({ error: error.message });
   }
-
-  // Determine which providers are connected for this user
-  const providerNames  = [];
-  const providerErrors = [];
-
-  for (const p of ['microsoft', 'google']) {
-    const creds = await userService.getCredentials(userId, p);
-    if (creds) providerNames.push(p);
-  }
-  if (bridgeServer.isConnected(userId)) {
-    providerNames.push('apple');
-  } else if (await userService.hasBridgeApiKey(userId)) {
-    providerErrors.push({ provider: 'apple', error: 'Bridge not connected' });
-  }
-
-  const allTasks = [];
-
-  await Promise.all(providerNames.map(async (providerName) => {
-    try {
-      const { provider } = getProviderForUser({
-        ...req, query: { provider: providerName }, body: {}
-      });
-      await initializeProvider(provider, providerName, userId);
-      const lists = await provider.getLists();
-
-      await Promise.all(lists.map(async (list) => {
-        try {
-          const tasks = await provider.getTasks(list.id);
-          for (const task of tasks) {
-            allTasks.push({ ...task, provider: providerName, listId: list.id, listName: list.name });
-          }
-        } catch (err) {
-          console.error(`unified: failed to load tasks for list ${list.id} (${providerName}):`, err.message);
-          if (!providerErrors.find(e => e.provider === providerName)) {
-            providerErrors.push({ provider: providerName, error: err.message });
-          }
-        }
-      }));
-    } catch (err) {
-      console.error(`unified: failed to initialize provider ${providerName} for user ${userId}:`, err.message);
-      providerErrors.push({ provider: providerName, error: err.message });
-    }
-  }));
-
-  const rules    = await userService.getClassificationRules(userId) || classificationConfig;
-  const annotated = allTasks.map(t => ({ ...t, classification: classifyTask(t, rules) }));
-  const result   = { user: req.user.username, tasks: annotated };
-
-  // Only cache complete results — partial results should retry on next request
-  if (providerErrors.length === 0) cache.set(cacheKey, result, TTL.tasks);
-
-  const response = providerErrors.length ? { ...result, providerErrors } : result;
-
-  if (sortByClassification) {
-    const sorted = [...annotated].sort((a, b) =>
-      (CLASSIFICATION_ORDER[a.classification] ?? 3) - (CLASSIFICATION_ORDER[b.classification] ?? 3)
-    );
-    return res.json({ ...response, tasks: sorted });
-  }
-  res.json(response);
 });
 
 // ============================================
@@ -987,53 +1002,58 @@ app.get('/api/tasks/unified', authService.requireAuth(), authService.requireSubs
 // Response: { user, providers: [...], byProvider: { microsoft: [...], ... }, lists: [...] }
 // Each list in `lists` includes a `provider` field.
 app.get('/api/lists/all', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
-  const userId = req.user.userId;
-  const cacheKey = `lists:all:${userId}`;
-  const cached = cache.get(cacheKey);
-  if (cached) {
-    // If the Apple bridge connection state changed since caching, bust the cache
-    // so the reconnected (or newly disconnected) state is reflected immediately.
-    const appleNowConnected = bridgeServer.isConnected(userId);
-    const appleWasCached    = cached.providers.includes('apple');
-    if (appleNowConnected === appleWasCached) return res.json(cached);
-    cache.delete(cacheKey);
-  }
-
-  const providerNames = [];
-  for (const p of ['microsoft', 'google']) {
-    const creds = await userService.getCredentials(userId, p);
-    if (creds) providerNames.push(p);
-  }
-  if (bridgeServer.isConnected(userId)) providerNames.push('apple');
-
-  const byProvider = {};
-  await Promise.all(providerNames.map(async (providerName) => {
-    // Use the per-provider cache if it was primed by the status check
-    const perProviderCached = providerName !== 'apple'
-      ? cache.get(`lists:${userId}:${providerName}`)
-      : null;
-    if (perProviderCached) {
-      byProvider[providerName] = perProviderCached.lists;
-      return;
+  try {
+    const userId = req.user.userId;
+    const cacheKey = `lists:all:${userId}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      // If the Apple bridge connection state changed since caching, bust the cache
+      // so the reconnected (or newly disconnected) state is reflected immediately.
+      const appleNowConnected = bridgeServer.isConnected(userId);
+      const appleWasCached    = cached.providers.includes('apple');
+      if (appleNowConnected === appleWasCached) return res.json(cached);
+      cache.delete(cacheKey);
     }
-    try {
-      const { provider } = getProviderForUser({ ...req, query: { provider: providerName }, body: {} });
-      await initializeProvider(provider, providerName, userId);
-      byProvider[providerName] = await provider.getLists();
-    } catch (err) {
-      console.error(`[lists/all] ${providerName} failed for user ${userId}:`, err.message);
-      byProvider[providerName] = [];
-    }
-  }));
 
-  const result = {
-    user: req.user.username,
-    providers: providerNames,
-    byProvider,
-    lists: providerNames.flatMap(p => (byProvider[p] || []).map(l => ({ ...l, provider: p })))
-  };
-  cache.set(cacheKey, result, TTL.lists);
-  res.json(result);
+    const providerNames = [];
+    for (const p of ['microsoft', 'google']) {
+      const creds = await userService.getCredentials(userId, p);
+      if (creds) providerNames.push(p);
+    }
+    if (bridgeServer.isConnected(userId)) providerNames.push('apple');
+
+    const byProvider = {};
+    await Promise.all(providerNames.map(async (providerName) => {
+      // Use the per-provider cache if it was primed by the status check
+      const perProviderCached = providerName !== 'apple'
+        ? cache.get(`lists:${userId}:${providerName}`)
+        : null;
+      if (perProviderCached) {
+        byProvider[providerName] = perProviderCached.lists;
+        return;
+      }
+      try {
+        const { provider } = getProviderForUser({ ...req, query: { provider: providerName }, body: {} });
+        await initializeProvider(provider, providerName, userId);
+        byProvider[providerName] = await provider.getLists();
+      } catch (err) {
+        console.error(`[lists/all] ${providerName} failed for user ${userId}:`, err.message);
+        byProvider[providerName] = [];
+      }
+    }));
+
+    const result = {
+      user: req.user.username,
+      providers: providerNames,
+      byProvider,
+      lists: providerNames.flatMap(p => (byProvider[p] || []).map(l => ({ ...l, provider: p })))
+    };
+    cache.set(cacheKey, result, TTL.lists);
+    res.json(result);
+  } catch (error) {
+    console.error(`/api/lists/all error for user ${req.user.userId}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.get('/api/lists', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
@@ -1247,6 +1267,16 @@ app.post('/billing/create-checkout-session', authService.requireAuth(), async (r
     const user = await userService.getUser(req.user.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
+    // Ask Stripe directly (not our DB, which can lag behind on a dropped webhook —
+    // see the 2026-07-11 webhook secret drift incident) whether this user already
+    // has a live subscription before starting a new Checkout Session.
+    const existing = await stripe.subscriptions.search({
+      query: `metadata['userId']:'${req.user.userId}' AND (status:'active' OR status:'trialing' OR status:'past_due')`,
+    });
+    if (existing.data.length > 0) {
+      return res.status(409).json({ error: 'You already have a subscription. Visit Settings to manage it.' });
+    }
+
     const baseUrl = process.env.WEB_URL || 'http://localhost';
     const sessionParams = {
       mode: 'subscription',
@@ -1254,6 +1284,7 @@ app.post('/billing/create-checkout-session', authService.requireAuth(), async (r
       success_url: `${baseUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/pricing.html`,
       metadata: { userId: req.user.userId, plan },
+      subscription_data: { metadata: { userId: req.user.userId, plan } },
       allow_promotion_codes: true,
     };
 
