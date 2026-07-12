@@ -1375,6 +1375,9 @@ app.post('/billing/create-checkout-session', authService.requireAuth(), async (r
     // Ask Stripe directly (not our DB, which can lag behind on a dropped webhook —
     // see the 2026-07-11 webhook secret drift incident) whether this user already
     // has a live subscription before starting a new Checkout Session.
+    // Known limitation: Stripe's Search API can take up to ~1 minute to index a
+    // just-created subscription, so an extremely fast repeat checkout could still
+    // slip past this guard. Acceptable risk — see PRODUCTION_READINESS.md.
     const existing = await stripe.subscriptions.search({
       query: `metadata['userId']:'${req.user.userId}' AND (status:'active' OR status:'trialing' OR status:'past_due')`,
     });
