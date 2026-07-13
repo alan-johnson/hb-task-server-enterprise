@@ -1378,10 +1378,13 @@ app.post('/billing/create-checkout-session', authService.requireAuth(), async (r
     // Known limitation: Stripe's Search API can take up to ~1 minute to index a
     // just-created subscription, so an extremely fast repeat checkout could still
     // slip past this guard. Acceptable risk — see PRODUCTION_READINESS.md.
+    // Stripe's Search Query Language cannot mix AND and OR in one query, so
+    // filter by userId only and check status in JS.
     const existing = await stripe.subscriptions.search({
-      query: `metadata['userId']:'${req.user.userId}' AND (status:'active' OR status:'trialing' OR status:'past_due')`,
+      query: `metadata['userId']:'${req.user.userId}'`,
     });
-    if (existing.data.length > 0) {
+    const activeStatuses = ['active', 'trialing', 'past_due'];
+    if (existing.data.some((sub) => activeStatuses.includes(sub.status))) {
       return res.status(409).json({ error: 'You already have a subscription. Visit Settings to manage it.' });
     }
 
