@@ -63,8 +63,13 @@ terraform apply
 3. Put DB creds + Stripe keys in the UpQ `.env` on the droplet (chmod 600).
 4. Put `scripts/backup.sh` + `/etc/upq/backup.env` on the droplet, add a cron entry:
    `0 3 * * * /home/deploy/backup.sh >> /var/log/upq-backup.log 2>&1`
-5. Add all GitHub Actions secrets (listed in each workflow file).
-6. Push to main — CI deploys the app and runs migrations.
+5. Put `scripts/check-redis-persistence.sh` on the droplet (`chmod +x`), add a root
+   cron entry (`sudo crontab -e` — needs root, since `/var/lib/redis` is `redis:redis`):
+   `0 * * * * /home/deploy/check-redis-persistence.sh >> /var/log/upq-redis-check.log 2>&1`
+   Belt-and-suspenders against Redis ever persisting the decrypted-token cache to disk
+   (see the script's header comment for why `save ""` alone isn't treated as sufficient).
+6. Add all GitHub Actions secrets (listed in each workflow file).
+7. Push to main — CI deploys the app and runs migrations.
 
 ### Phase 3 — migrate handsbreadth.com
 The main business site (handsbreadth.com) is a PHP/static site hosted alongside
