@@ -409,6 +409,74 @@ class UserService {
     return result.rowCount > 0;
   }
 
+  // ---------- developer API keys (REST/MCP beta) ----------
+
+  async createApiKey(userId, { name = 'default', sandbox = false, scopes = 'tasks:read,tasks:write' } = {}) {
+    const id = crypto.randomUUID();
+    const secret = crypto.randomBytes(24).toString('base64url');
+    const key = `${sandbox ? 'upq_sandbox_' : 'upq_live_'}${secret}`;
+    const keyPrefix = key.slice(0, 16);
+    const keyHash = crypto.createHash('sha256').update(key).digest('hex');
+    await pool.query(
+      `INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, scopes, sandbox, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [id, userId, name, keyPrefix, keyHash, scopes, sandbox]
+    );
+    return { id, apiKey: key, prefix: keyPrefix, name, sandbox, scopes };
+  }
+
+  async listApiKeys(userId) {
+    const result = await pool.query(
+      `SELECT id, name, key_prefix, sandbox, scopes, created_at, last_used_at, revoked_at
+       FROM api_keys WHERE user_id = ? ORDER BY created_at DESC`,
+      [userId]
+    );
+    return result.rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      prefix: r.key_prefix,
+      sandbox: !!r.sandbox,
+      scopes: r.scopes,
+      createdAt: r.created_at,
+      lastUsedAt: r.last_used_at,
+      revokedAt: r.revoked_at
+    }));
+  }
+
+  async findApiKeyByRawKey(rawKey) {
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
+    const result = await pool.query(
+      `SELECT ak.id, ak.user_id, ak.sandbox, ak.scopes, u.username
+       FROM api_keys ak
+       JOIN users u ON u.user_id = ak.user_id
+       WHERE ak.key_hash = ? AND ak.revoked_at IS NULL`,
+      [keyHash]
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      userId: row.user_id,
+      username: row.username,
+      sandbox: !!row.sandbox,
+      scopes: row.scopes
+    };
+  }
+
+  async revokeApiKey(userId, keyId) {
+    const result = await pool.query(
+      'UPDATE api_keys SET revoked_at = NOW() WHERE id = ? AND user_id = ? AND revoked_at IS NULL',
+      [keyId, userId]
+    );
+    return result.rowCount > 0;
+  }
+
+  async touchApiKeyLastUsed(keyId) {
+    await pool.query('UPDATE api_keys SET last_used_at = NOW() WHERE id = ?', [keyId]).catch(err => {
+      console.error('touchApiKeyLastUsed failed:', err.message);
+    });
+  }
+
   // ---------- subscription ----------
 
   async updateSubscription(userId, stripeCustomerId, status, periodEnd = null, trialEnd = null) {

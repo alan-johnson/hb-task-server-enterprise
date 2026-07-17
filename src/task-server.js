@@ -3,7 +3,7 @@ const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const fs = require('fs');
 const path = require('path');
 const TOML = require('@iarna/toml');
@@ -36,9 +36,14 @@ function fileLog(...args) {
 const MicrosoftTasksProvider = require('./providers/microsoft');
 const GoogleTasksProvider = require('./providers/google');
 const AppleBridgeProvider = require('./providers/apple-bridge');
+const SandboxProvider = require('./providers/sandbox');
+const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
+const { createUpqMcpServer } = require('./mcp/tools');
 const bridgeServer = require('./bridge-server');
 const AuthService = require('./auth/authService');
 const UserService = require('./auth/userService');
+const { apiError } = require('./errors');
+const { idempotencyMiddleware } = require('./idempotency');
 
 const stripe = process.env.STRIPE_SECRET_KEY
   ? require('stripe')(process.env.STRIPE_SECRET_KEY)
@@ -51,6 +56,8 @@ function stripePeriodEnd(sub) {
 
 const { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail, verifySmtp, sendTrialEndingWarningEmail, sendPaymentFailedEmail, sendSubscriptionExpiredEmail, sendAdminAlertEmail } = require('./emailService');
 const { runSubscriptionMaintenance } = require('./jobs/subscriptionMaintenance');
+const { cleanupIdempotencyKeys } = require('./jobs/idempotencyCleanup');
+const { usageLogger } = require('./analytics/usageLogger');
 
 // Load classification config from TOML (once at startup)
 const DEFAULT_CLASSIFICATION = {
@@ -317,7 +324,12 @@ userService.initialize().then(() => {
 
 // Helper to get provider for the authenticated user
 function getProviderForUser(req) {
-  const providerName = (req.query.provider || req.body.provider || req.user.defaultProvider || 'microsoft').toLowerCase();
+  // A sandbox API key can only ever see sandbox data — this is enforced here,
+  // not by convention, so a sandbox key can never reach real provider data
+  // regardless of ?provider= or the account's connected credentials.
+  const providerName = req.apiKey?.sandbox
+    ? 'sandbox'
+    : (req.query.provider || req.body.provider || req.user.defaultProvider || 'microsoft').toLowerCase();
 
   let provider;
   switch (providerName) {
@@ -339,6 +351,9 @@ function getProviderForUser(req) {
     case 'apple':
       provider = new AppleBridgeProvider(req.user.userId);
       break;
+    case 'sandbox':
+      provider = new SandboxProvider(req.apiKey?.id || req.user.userId);
+      break;
     default:
       throw new Error(`Invalid provider: ${providerName}`);
   }
@@ -348,7 +363,7 @@ function getProviderForUser(req) {
 
 // Initialize provider with user's credentials
 async function initializeProvider(provider, providerName, userId) {
-  if (providerName === 'apple') return; // no credentials needed; uses bridge
+  if (providerName === 'apple' || providerName === 'sandbox') return; // no credentials needed
 
   const credentials = await userService.getCredentials(userId, providerName);
 
@@ -440,6 +455,19 @@ const authActionLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests. Please try again later.' },
+});
+
+// Developer REST API / MCP beta: user-keyed (not IP-keyed) since agent/MCP
+// clients don't map cleanly to individual IPs. 120/min is a conservative
+// starting placeholder — revisit with real usage data (see Step 7).
+// Mounted after requireApiKeyOrJWT so req.user is populated.
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 120,
+  keyGenerator: (req) => req.user?.userId || ipKeyGenerator(req.ip),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => apiError(res, 'rate_limited', 'Too many requests. Please try again shortly.'),
 });
 
 app.post('/auth/register', authActionLimiter, async (req, res) => {
@@ -941,12 +969,25 @@ app.patch('/api/settings', authService.requireAuth(), async (req, res) => {
   }
 });
 
+// Developer REST API / MCP beta: shared middleware chain for every
+// task/list/classification route. Accepts a JWT (browser/human) or a
+// upq_live_/upq_sandbox_ API key (developer/agent), and deliberately skips
+// requireSubscription() — the beta is free (see Step 6 of the lean beta
+// plan). Never applied to billing/account-management routes; that's what
+// structurally keeps an API key out of those paths, not just convention.
+const apiKeyAuth = [authService.requireApiKeyOrJWT(userService), apiLimiter, usageLogger];
+// Same chain, plus the subscription gate — for routes that already enforced
+// requireSubscription() before this beta work. API-key requests skip the
+// gate (beta is free); JWT/browser requests are still gated exactly as
+// before, so existing paying-customer behavior is unchanged.
+const apiKeyAuthSub = [...apiKeyAuth, authService.requireSubscriptionUnlessApiKey(userService)];
+
 // ============================================
 // Per-user Classification Rules
 // ============================================
 
 // Get effective rules: user's custom rules, or server defaults if none set
-app.get('/auth/me/classification', authService.requireAuth(), async (req, res) => {
+app.get('/auth/me/classification', ...apiKeyAuth, async (req, res) => {
   try {
     const rules = await userService.getClassificationRules(req.user.userId);
     res.json({ rules: rules || classificationConfig, isCustom: !!rules });
@@ -956,7 +997,7 @@ app.get('/auth/me/classification', authService.requireAuth(), async (req, res) =
 });
 
 // Save custom rules for this user
-app.put('/auth/me/classification', authService.requireAuth(), async (req, res) => {
+app.put('/auth/me/classification', ...apiKeyAuth, async (req, res) => {
   try {
     const { now, next, later } = req.body;
     if (!now || !next || !later) {
@@ -973,7 +1014,7 @@ app.put('/auth/me/classification', authService.requireAuth(), async (req, res) =
 });
 
 // Reset this user's rules back to server defaults
-app.delete('/auth/me/classification', authService.requireAuth(), async (req, res) => {
+app.delete('/auth/me/classification', ...apiKeyAuth, async (req, res) => {
   try {
     await userService.resetClassificationRules(req.user.userId);
     cache.deletePrefix(`tasks:${req.user.userId}:`);
@@ -985,7 +1026,7 @@ app.delete('/auth/me/classification', authService.requireAuth(), async (req, res
 });
 
 // Parse a TOML classification file and return validated rules (no save)
-app.post('/auth/me/classification/parse', authService.requireAuth(), async (req, res) => {
+app.post('/auth/me/classification/parse', ...apiKeyAuth, async (req, res) => {
   try {
     const { toml } = req.body;
     if (!toml || typeof toml !== 'string') {
@@ -1018,34 +1059,69 @@ app.post('/auth/me/classification/parse', authService.requireAuth(), async (req,
 
 const CLASSIFICATION_ORDER = { now: 0, next: 1, later: 2 };
 
-app.get('/api/tasks/unified', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
+// Applies ?list_id= / ?exclude_list= (comma-separated list IDs) and
+// ?limit=/?offset= to an already-fetched, already-classified task array.
+// Providers return everything anyway; this only trims the response payload
+// and lets a developer scope out irrelevant lists on the one endpoint,
+// instead of pushing MS-vs-Google list-structure differences onto them via
+// separate list-scoped endpoints (see Step 1 of the lean beta plan).
+function applyListFilterAndPagination(tasks, query) {
+  let filtered = tasks;
+  if (query.list_id) {
+    const ids = new Set(String(query.list_id).split(',').map(s => s.trim()).filter(Boolean));
+    filtered = filtered.filter(t => ids.has(t.listId));
+  }
+  if (query.exclude_list) {
+    const ids = new Set(String(query.exclude_list).split(',').map(s => s.trim()).filter(Boolean));
+    filtered = filtered.filter(t => !ids.has(t.listId));
+  }
+
+  const total = filtered.length;
+  let paged = filtered;
+  let hasMore = false;
+  if (query.limit !== undefined) {
+    const limit = Math.max(0, parseInt(query.limit, 10) || 0);
+    const offset = Math.max(0, parseInt(query.offset, 10) || 0);
+    paged = filtered.slice(offset, offset + limit);
+    hasMore = offset + limit < total;
+  }
+
+  return { tasks: paged, total, hasMore };
+}
+
+app.get('/api/tasks/unified', ...apiKeyAuthSub, async (req, res) => {
   try {
     const userId = req.user.userId;
     const sortByClassification = req.query.sort === 'classification';
     const cacheKey = `unified:${userId}`;
     const cached = cache.get(cacheKey);
     if (cached) {
+      let tasks = cached.tasks;
       if (sortByClassification) {
-        const sorted = [...cached.tasks].sort((a, b) =>
+        tasks = [...tasks].sort((a, b) =>
           (CLASSIFICATION_ORDER[a.classification] ?? 3) - (CLASSIFICATION_ORDER[b.classification] ?? 3)
         );
-        return res.json({ ...cached, tasks: sorted });
       }
-      return res.json(cached);
+      const { tasks: paged, total, hasMore } = applyListFilterAndPagination(tasks, req.query);
+      return res.json({ ...cached, tasks: paged, total, hasMore });
     }
 
     // Determine which providers are connected for this user
     const providerNames  = [];
     const providerErrors = [];
 
-    for (const p of ['microsoft', 'google']) {
-      const creds = await userService.getCredentials(userId, p);
-      if (creds) providerNames.push(p);
-    }
-    if (bridgeServer.isConnected(userId)) {
-      providerNames.push('apple');
-    } else if (await userService.hasBridgeApiKey(userId)) {
-      providerErrors.push({ provider: 'apple', error: 'Bridge not connected' });
+    if (req.apiKey?.sandbox) {
+      providerNames.push('sandbox');
+    } else {
+      for (const p of ['microsoft', 'google']) {
+        const creds = await userService.getCredentials(userId, p);
+        if (creds) providerNames.push(p);
+      }
+      if (bridgeServer.isConnected(userId)) {
+        providerNames.push('apple');
+      } else if (await userService.hasBridgeApiKey(userId)) {
+        providerErrors.push({ provider: 'apple', error: 'Bridge not connected' });
+      }
     }
 
     const allTasks = [];
@@ -1086,15 +1162,20 @@ app.get('/api/tasks/unified', authService.requireAuth(), authService.requireSubs
 
     const response = providerErrors.length ? { ...result, providerErrors } : result;
 
+    let responseTasks = annotated;
     if (sortByClassification) {
-      const sorted = [...annotated].sort((a, b) =>
+      responseTasks = [...annotated].sort((a, b) =>
         (CLASSIFICATION_ORDER[a.classification] ?? 3) - (CLASSIFICATION_ORDER[b.classification] ?? 3)
       );
-      return res.json({ ...response, tasks: sorted });
     }
-    res.json(response);
+    const { tasks: paged, total, hasMore } = applyListFilterAndPagination(responseTasks, req.query);
+    res.json({ ...response, tasks: paged, total, hasMore });
   } catch (error) {
     console.error(`/api/tasks/unified error for user ${req.user.userId}:`, error.message);
+    // Kept on the legacy {error: '...'} string shape (not apiError) — the
+    // existing browser frontend (all-tasks.html) does `new Error(e.error)`
+    // on this route and shares it with API-key callers, so the response
+    // shape can't be changed here without breaking that client.
     res.status(500).json({ error: error.message });
   }
 });
@@ -1106,7 +1187,7 @@ app.get('/api/tasks/unified', authService.requireAuth(), authService.requireSubs
 // Returns lists from all connected providers in one call.
 // Response: { user, providers: [...], byProvider: { microsoft: [...], ... }, lists: [...] }
 // Each list in `lists` includes a `provider` field.
-app.get('/api/lists/all', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
+app.get('/api/lists/all', ...apiKeyAuthSub, async (req, res) => {
   try {
     const userId = req.user.userId;
     const cacheKey = `lists:all:${userId}`;
@@ -1121,16 +1202,20 @@ app.get('/api/lists/all', authService.requireAuth(), authService.requireSubscrip
     }
 
     const providerNames = [];
-    for (const p of ['microsoft', 'google']) {
-      const creds = await userService.getCredentials(userId, p);
-      if (creds) providerNames.push(p);
+    if (req.apiKey?.sandbox) {
+      providerNames.push('sandbox');
+    } else {
+      for (const p of ['microsoft', 'google']) {
+        const creds = await userService.getCredentials(userId, p);
+        if (creds) providerNames.push(p);
+      }
+      if (bridgeServer.isConnected(userId)) providerNames.push('apple');
     }
-    if (bridgeServer.isConnected(userId)) providerNames.push('apple');
 
     const byProvider = {};
     await Promise.all(providerNames.map(async (providerName) => {
       // Use the per-provider cache if it was primed by the status check
-      const perProviderCached = providerName !== 'apple'
+      const perProviderCached = (providerName !== 'apple' && providerName !== 'sandbox')
         ? cache.get(`lists:${userId}:${providerName}`)
         : null;
       if (perProviderCached) {
@@ -1161,7 +1246,7 @@ app.get('/api/lists/all', authService.requireAuth(), authService.requireSubscrip
   }
 });
 
-app.get('/api/lists', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
+app.get('/api/lists', ...apiKeyAuthSub, async (req, res) => {
   try {
     const { provider, providerName } = getProviderForUser(req);
     const cacheKey = `lists:${req.user.userId}:${providerName}`;
@@ -1178,7 +1263,7 @@ app.get('/api/lists', authService.requireAuth(), authService.requireSubscription
   }
 });
 
-app.get('/api/lists/counts', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
+app.get('/api/lists/counts', ...apiKeyAuthSub, async (req, res) => {
   try {
     const { provider, providerName } = getProviderForUser(req);
     const user = await userService.getUser(req.user.userId);
@@ -1201,7 +1286,7 @@ app.get('/api/lists/counts', authService.requireAuth(), authService.requireSubsc
 // Tasks Routes
 // ============================================
 
-app.get('/api/lists/:listId/tasks', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
+app.get('/api/lists/:listId/tasks', ...apiKeyAuthSub, async (req, res) => {
   try {
     const { listId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
@@ -1221,7 +1306,7 @@ app.get('/api/lists/:listId/tasks', authService.requireAuth(), authService.requi
   }
 });
 
-app.get('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
+app.get('/api/lists/:listId/tasks/:taskId', ...apiKeyAuthSub, async (req, res) => {
   try {
     const { listId, taskId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
@@ -1235,7 +1320,7 @@ app.get('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), authServi
   }
 });
 
-app.post('/api/lists/:listId/tasks', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
+app.post('/api/lists/:listId/tasks', ...apiKeyAuthSub, idempotencyMiddleware, async (req, res) => {
   try {
     const { listId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
@@ -1251,7 +1336,7 @@ app.post('/api/lists/:listId/tasks', authService.requireAuth(), authService.requ
   }
 });
 
-app.patch('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
+app.patch('/api/lists/:listId/tasks/:taskId', ...apiKeyAuthSub, async (req, res) => {
   try {
     const { listId, taskId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
@@ -1266,7 +1351,7 @@ app.patch('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), authSer
   }
 });
 
-app.patch('/api/lists/:listId/tasks/:taskId/complete', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
+app.patch('/api/lists/:listId/tasks/:taskId/complete', ...apiKeyAuthSub, async (req, res) => {
   try {
     const { listId, taskId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
@@ -1282,7 +1367,7 @@ app.patch('/api/lists/:listId/tasks/:taskId/complete', authService.requireAuth()
   }
 });
 
-app.delete('/api/lists/:listId/tasks/:taskId', authService.requireAuth(), authService.requireSubscription(userService), async (req, res) => {
+app.delete('/api/lists/:listId/tasks/:taskId', ...apiKeyAuthSub, async (req, res) => {
   try {
     const { listId, taskId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
@@ -1554,6 +1639,93 @@ app.get('/auth/bridge/status', authService.requireAuth(), async (req, res) => {
 });
 
 // ============================================
+// Developer API Keys (REST/MCP beta) — JWT-only, same precondition as
+// bridge keys: a human must already be logged in to mint a machine
+// credential. Never reachable via an API key itself (no key can mint or
+// manage other keys).
+// ============================================
+
+// Mint a new API key. { name?, sandbox? } — sandbox keys can only ever see
+// sandbox data (enforced in getProviderForUser), live keys reach the
+// account's real connected providers. The raw key is returned once.
+app.post('/auth/api-keys', authService.requireAuth(), async (req, res) => {
+  try {
+    const { name, sandbox } = req.body || {};
+    const created = await userService.createApiKey(req.user.userId, { name, sandbox: !!sandbox });
+    res.json({
+      ...created,
+      createdAt: new Date().toISOString(),
+      message: 'Store this key securely. It will not be shown again.'
+    });
+  } catch (error) {
+    apiError(res, 'internal_error', error.message);
+  }
+});
+
+// List this account's API keys (metadata only — never the raw key or hash)
+app.get('/auth/api-keys', authService.requireAuth(), async (req, res) => {
+  try {
+    const keys = await userService.listApiKeys(req.user.userId);
+    res.json({ keys });
+  } catch (error) {
+    apiError(res, 'internal_error', error.message);
+  }
+});
+
+// Revoke a key by id
+app.delete('/auth/api-keys/:id', authService.requireAuth(), async (req, res) => {
+  try {
+    const revoked = await userService.revokeApiKey(req.user.userId, req.params.id);
+    if (!revoked) return apiError(res, 'not_found', 'API key not found');
+    res.json({ success: true });
+  } catch (error) {
+    apiError(res, 'internal_error', error.message);
+  }
+});
+
+// Reset a sandbox key's in-memory task store back to the fixture baseline —
+// lets a developer retest a write flow without minting a new key.
+app.post('/api/sandbox/reset', ...apiKeyAuth, async (req, res) => {
+  if (!req.apiKey?.sandbox) {
+    return apiError(res, 'forbidden', 'Only sandbox API keys can reset sandbox data');
+  }
+  SandboxProvider.resetStore(req.apiKey.id);
+  // Same cache keys the task-mutation routes below invalidate on write —
+  // without this, reads would keep serving pre-reset data from SimpleCache
+  // until its TTL naturally expires.
+  const userId = req.user.userId;
+  cache.deletePrefix(`tasks:${userId}:sandbox:`);
+  cache.delete(`unified:${userId}`);
+  cache.delete(`lists:all:${userId}`);
+  cache.delete(`lists:${userId}:sandbox`);
+  cache.deletePrefix(`counts:${userId}:sandbox:`);
+  res.json({ success: true, message: 'Sandbox data reset to fixture baseline' });
+});
+
+// ============================================
+// Hosted MCP endpoint (Streamable HTTP) — same tools as the stdio server
+// (src/mcp-server.js), for developers who'd rather not run a local process.
+// Stateless: a fresh McpServer + transport is created per request, bound to
+// the caller's own API key, which the tool handlers use to call this same
+// server's REST routes over HTTP (self-loopback) — no session state to
+// manage, no reimplemented business logic.
+// ============================================
+app.post('/mcp', ...apiKeyAuth, async (req, res) => {
+  try {
+    const rawKey = req.headers['authorization'].substring(7); // apiKeyAuth already validated this is a Bearer token
+    const selfBaseUrl = process.env.SELF_BASE_URL || `http://localhost:${API_PORT}`;
+    const server = createUpqMcpServer({ baseUrl: selfBaseUrl, apiKey: rawKey });
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    res.on('close', () => { transport.close(); server.close(); });
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+  } catch (error) {
+    console.error('/mcp error:', error.message);
+    if (!res.headersSent) apiError(res, 'internal_error', error.message);
+  }
+});
+
+// ============================================
 // Static file serving (used when this server is the sole entry point,
 // e.g. on Namecheap shared hosting where only one Node.js app is allowed)
 // ============================================
@@ -1594,4 +1766,10 @@ bridgeServer.attach(httpServer, (apiKey) => userService.getUserIdByBridgeApiKey(
 setTimeout(() => {
   runSubscriptionMaintenance();
   setInterval(runSubscriptionMaintenance, 24 * 60 * 60 * 1000);
+}, 60_000);
+
+// Daily idempotency-key cleanup — same cadence as subscription maintenance
+setTimeout(() => {
+  cleanupIdempotencyKeys();
+  setInterval(cleanupIdempotencyKeys, 24 * 60 * 60 * 1000);
 }, 60_000);

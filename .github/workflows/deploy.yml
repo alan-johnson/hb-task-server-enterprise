@@ -60,6 +60,15 @@ jobs:
           TEST_USER: ${{ secrets.TEST_USER }}
           TEST_PASS: ${{ secrets.TEST_PASS }}
         run: node test/test-integration.js
+      - name: Beta API / MCP smoke test against production
+        # Safe against prod: sandbox data is isolated per API key (see
+        # src/providers/sandbox.js) and never touches this account's real
+        # connected Microsoft/Google data. Mints and revokes its own key.
+        env:
+          BASE_URL:  https://tasks.handsbreadth.com
+          TEST_USER: ${{ secrets.TEST_USER }}
+          TEST_PASS: ${{ secrets.TEST_PASS }}
+        run: npm run test:beta
 
   migrate-db:
     needs: smoke-test          # only migrate after code is live AND verified healthy

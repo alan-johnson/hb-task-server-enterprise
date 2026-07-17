@@ -1,4 +1,7 @@
 const jwt = require('jsonwebtoken');
+const { apiError } = require('../errors');
+
+const API_KEY_PREFIXES = ['upq_live_', 'upq_sandbox_'];
 
 class AuthService {
   constructor(jwtSecret) {
@@ -78,6 +81,60 @@ class AuthService {
         return res.status(402).json({ error: 'subscription_required', status });
       } catch (err) {
         return res.status(500).json({ error: err.message });
+      }
+    };
+  }
+
+  // Same subscription gate, but skipped for API-key-authenticated requests —
+  // the developer beta is free (see Step 6 of the lean beta plan), while
+  // existing JWT-authenticated browser users still need an active
+  // subscription, same as before this beta work. Must run after
+  // requireApiKeyOrJWT() so req.authMethod is populated.
+  requireSubscriptionUnlessApiKey(userService) {
+    const gate = this.requireSubscription(userService);
+    return (req, res, next) => {
+      if (req.authMethod === 'apiKey') return next();
+      return gate(req, res, next);
+    };
+  }
+
+  // Accepts either a JWT (full account privileges, browser/human path) or a
+  // developer API key (upq_live_/upq_sandbox_ prefixed, scoped machine-client
+  // credential). Populates req.user the same way either path, plus req.apiKey
+  // for key-authenticated requests so downstream handlers (sandbox routing,
+  // usage logging) can branch on it. Never applied to billing/account routes —
+  // that's what actually keeps API keys out of those paths, not convention.
+  requireApiKeyOrJWT(userService) {
+    return async (req, res, next) => {
+      const authHeader = req.headers['authorization'];
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return apiError(res, 'unauthorized', 'Provide a JWT or API key as a Bearer token');
+      }
+      const token = authHeader.substring(7);
+
+      if (API_KEY_PREFIXES.some(p => token.startsWith(p))) {
+        try {
+          const keyRecord = await userService.findApiKeyByRawKey(token);
+          if (!keyRecord) {
+            return apiError(res, 'unauthorized', 'Invalid or revoked API key');
+          }
+          req.user = { userId: keyRecord.userId, username: keyRecord.username };
+          req.authMethod = 'apiKey';
+          req.apiKey = { id: keyRecord.id, sandbox: keyRecord.sandbox, scopes: keyRecord.scopes };
+          userService.touchApiKeyLastUsed(keyRecord.id);
+          return next();
+        } catch (err) {
+          return apiError(res, 'internal_error', err.message);
+        }
+      }
+
+      try {
+        const decoded = this.verifyToken(token);
+        req.user = decoded;
+        req.authMethod = 'jwt';
+        next();
+      } catch (error) {
+        return apiError(res, 'unauthorized', error.message);
       }
     };
   }

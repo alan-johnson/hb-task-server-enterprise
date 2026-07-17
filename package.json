@@ -12,16 +12,19 @@
     "dev:web": "nodemon src/web-server.js",
     "start:all": "concurrently \"npm run start:api\" \"npm run start:web\"",
     "dev:all": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+    "start:mcp": "node src/mcp-server.js",
     "create-admin": "node scripts/create-admin.js",
     "delete-test-user": "node scripts/delete-test-user.js",
     "get-verify-url": "node scripts/get-verify-url.js",
-    "test": "node test/test-integration.js",
-    "test:local": "BASE_URL=http://localhost:3500 node test/test-integration.js"
+    "test": "node test/test-integration.js && npm run test:beta",
+    "test:local": "BASE_URL=http://localhost:3500 node test/test-integration.js",
+    "test:beta": "node test/test-beta-api.js && node test/test-mcp.js"
   },
   "dependencies": {
     "@azure/identity": "^4.0.0",
     "@iarna/toml": "^2.2.5",
     "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "bcryptjs": "^2.4.3",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
@@ -35,10 +38,12 @@
     "mysql2": "^3.19.1",
     "nodemailer": "^9.0.3",
     "stripe": "^20.4.1",
-    "ws": "^8.19.0"
+    "ws": "^8.19.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.0.1",
+    "wait-on": "^9.0.10"
   }
 }
