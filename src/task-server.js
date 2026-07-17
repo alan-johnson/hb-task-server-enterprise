@@ -43,6 +43,7 @@ const bridgeServer = require('./bridge-server');
 const AuthService = require('./auth/authService');
 const UserService = require('./auth/userService');
 const { apiError } = require('./errors');
+const { createRedisStore } = require('./rateLimitStore');
 const { idempotencyMiddleware } = require('./idempotency');
 
 const stripe = process.env.STRIPE_SECRET_KEY
@@ -57,6 +58,7 @@ function stripePeriodEnd(sub) {
 const { sendVerificationEmail, resendVerificationEmail, sendPasswordResetEmail, verifySmtp, sendTrialEndingWarningEmail, sendPaymentFailedEmail, sendSubscriptionExpiredEmail, sendAdminAlertEmail } = require('./emailService');
 const { runSubscriptionMaintenance } = require('./jobs/subscriptionMaintenance');
 const { cleanupIdempotencyKeys } = require('./jobs/idempotencyCleanup');
+const { cleanupApiUsageEvents } = require('./jobs/apiUsageCleanup');
 const { usageLogger } = require('./analytics/usageLogger');
 
 // Load classification config from TOML (once at startup)
@@ -438,35 +440,41 @@ app.get('/api/providers', (req, res) => {
 
 // Credential stuffing / brute force: keyed by IP, keeps a wrong password from
 // being guessable at scale without punishing normal mistyped-password retries.
+const LOGIN_LIMITER_WINDOW_MS = 15 * 60 * 1000;
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs: LOGIN_LIMITER_WINDOW_MS,
   limit: 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many login attempts. Please try again later.' },
+  store: createRedisStore({ windowMs: LOGIN_LIMITER_WINDOW_MS, prefix: 'login' }),
 });
 
 // Covers registration, resend-verification, and forgot-password — all three
 // trigger an outbound email and/or reveal account existence, so both abuse
 // and enumeration-by-volume are worth throttling the same way.
+const AUTH_ACTION_LIMITER_WINDOW_MS = 60 * 60 * 1000;
 const authActionLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
+  windowMs: AUTH_ACTION_LIMITER_WINDOW_MS,
   limit: 5,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests. Please try again later.' },
+  store: createRedisStore({ windowMs: AUTH_ACTION_LIMITER_WINDOW_MS, prefix: 'auth-action' }),
 });
 
 // Developer REST API / MCP beta: user-keyed (not IP-keyed) since agent/MCP
 // clients don't map cleanly to individual IPs. 120/min is a conservative
 // starting placeholder — revisit with real usage data (see Step 7).
 // Mounted after requireApiKeyOrJWT so req.user is populated.
+const API_LIMITER_WINDOW_MS = 60 * 1000;
 const apiLimiter = rateLimit({
-  windowMs: 60 * 1000,
+  windowMs: API_LIMITER_WINDOW_MS,
   limit: 120,
   keyGenerator: (req) => req.user?.userId || ipKeyGenerator(req.ip),
   standardHeaders: true,
   legacyHeaders: false,
+  store: createRedisStore({ windowMs: API_LIMITER_WINDOW_MS, prefix: 'api' }),
   handler: (req, res) => apiError(res, 'rate_limited', 'Too many requests. Please try again shortly.'),
 });
 
@@ -1799,4 +1807,10 @@ setTimeout(() => {
 setTimeout(() => {
   cleanupIdempotencyKeys();
   setInterval(cleanupIdempotencyKeys, 24 * 60 * 60 * 1000);
+}, 60_000);
+
+// Daily api_usage_events cleanup — same cadence as the other daily jobs
+setTimeout(() => {
+  cleanupApiUsageEvents();
+  setInterval(cleanupApiUsageEvents, 24 * 60 * 60 * 1000);
 }, 60_000);

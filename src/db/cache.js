@@ -31,4 +31,4 @@ async function del(...keys) {
   if (c && keys.length) await c.del(...keys).catch((err) => console.warn('Redis del error (non-fatal):', err.message));
 }
 
-module.exports = { get, set, del };
+module.exports = { get, set, del, getClient };

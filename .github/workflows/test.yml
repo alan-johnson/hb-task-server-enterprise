@@ -1,11 +1,17 @@
 name: test
 
 # Pre-merge quality gate for the developer REST API / MCP beta surface
-# (see docs/upq-rest-api-lean-beta-plan.md, Step 9). Runs entirely against an
-# ephemeral MySQL service container and the sandbox provider — no live
-# Microsoft/Google OAuth or production secrets required, so it's safe to run
-# on any pull request. test-integration.js (which needs a real connected
+# (see docs/upq-rest-api-lean-beta-plan.md, Step 9). Runs entirely against
+# ephemeral MySQL and Redis service containers and the sandbox provider — no
+# live Microsoft/Google OAuth or production secrets required, so it's safe to
+# run on any pull request. test-integration.js (which needs a real connected
 # test account) stays production-only in deploy.yml's smoke-test job.
+#
+# Redis is included (not just MySQL) because it's standard for the real
+# deployment (see docs/DEPLOY.md, Section 2) and backs the rate limiter
+# (src/rateLimitStore.js) and the user/credentials/rules cache
+# (src/db/cache.js) — without it here, CI would only ever exercise the
+# no-Redis fallback path, never the one that's actually live in production.
 
 on:
   pull_request:
@@ -27,8 +33,18 @@ jobs:
           --health-interval=5s
           --health-timeout=3s
           --health-retries=10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
     env:
       DATABASE_URL: mysql://root:root@127.0.0.1:3306/upq_test
+      REDIS_URL: redis://127.0.0.1:6379
       JWT_SECRET: ci-test-jwt-secret-at-least-32-characters-long
       ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
       ALLOWED_ORIGIN: http://localhost:3500
