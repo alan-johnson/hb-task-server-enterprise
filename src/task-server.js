@@ -975,7 +975,7 @@ app.patch('/api/settings', authService.requireAuth(), async (req, res) => {
 // requireSubscription() — the beta is free (see Step 6 of the lean beta
 // plan). Never applied to billing/account-management routes; that's what
 // structurally keeps an API key out of those paths, not just convention.
-const apiKeyAuth = [authService.requireApiKeyOrJWT(userService), apiLimiter, usageLogger];
+const apiKeyAuth = [authService.requireApiKeyOrJWT(userService), authService.requireScope(), apiLimiter, usageLogger];
 // Same chain, plus the subscription gate — for routes that already enforced
 // requireSubscription() before this beta work. API-key requests skip the
 // gate (beta is free); JWT/browser requests are still gated exactly as
@@ -1336,7 +1336,7 @@ app.post('/api/lists/:listId/tasks', ...apiKeyAuthSub, idempotencyMiddleware, as
   }
 });
 
-app.patch('/api/lists/:listId/tasks/:taskId', ...apiKeyAuthSub, async (req, res) => {
+app.patch('/api/lists/:listId/tasks/:taskId', ...apiKeyAuthSub, idempotencyMiddleware, async (req, res) => {
   try {
     const { listId, taskId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
@@ -1351,7 +1351,7 @@ app.patch('/api/lists/:listId/tasks/:taskId', ...apiKeyAuthSub, async (req, res)
   }
 });
 
-app.patch('/api/lists/:listId/tasks/:taskId/complete', ...apiKeyAuthSub, async (req, res) => {
+app.patch('/api/lists/:listId/tasks/:taskId/complete', ...apiKeyAuthSub, idempotencyMiddleware, async (req, res) => {
   try {
     const { listId, taskId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
@@ -1367,7 +1367,7 @@ app.patch('/api/lists/:listId/tasks/:taskId/complete', ...apiKeyAuthSub, async (
   }
 });
 
-app.delete('/api/lists/:listId/tasks/:taskId', ...apiKeyAuthSub, async (req, res) => {
+app.delete('/api/lists/:listId/tasks/:taskId', ...apiKeyAuthSub, idempotencyMiddleware, async (req, res) => {
   try {
     const { listId, taskId } = req.params;
     const { provider, providerName } = getProviderForUser(req);
@@ -1648,10 +1648,37 @@ app.get('/auth/bridge/status', authService.requireAuth(), async (req, res) => {
 // Mint a new API key. { name?, sandbox? } — sandbox keys can only ever see
 // sandbox data (enforced in getProviderForUser), live keys reach the
 // account's real connected providers. The raw key is returned once.
+const VALID_API_KEY_SCOPES = ['tasks:read', 'tasks:write'];
+
+// Accepts scopes as an array (["tasks:read"]) or a comma-separated string
+// ("tasks:read,tasks:write"). Omitted → full default scope, unchanged
+// behavior for every key minted before scope enforcement existed. An
+// explicit empty/invalid list is rejected rather than silently upgraded to
+// full access.
+function normalizeApiKeyScopes(input) {
+  if (input === undefined) return VALID_API_KEY_SCOPES.join(',');
+  const raw = Array.isArray(input) ? input : String(input).split(',');
+  const cleaned = [...new Set(raw.map(s => String(s).trim()).filter(Boolean))];
+  if (cleaned.length === 0) {
+    throw new Error(`scopes must include at least one of: ${VALID_API_KEY_SCOPES.join(', ')}`);
+  }
+  const invalid = cleaned.filter(s => !VALID_API_KEY_SCOPES.includes(s));
+  if (invalid.length) {
+    throw new Error(`Invalid scope(s): ${invalid.join(', ')}. Valid scopes: ${VALID_API_KEY_SCOPES.join(', ')}`);
+  }
+  return cleaned.join(',');
+}
+
 app.post('/auth/api-keys', authService.requireAuth(), async (req, res) => {
   try {
-    const { name, sandbox } = req.body || {};
-    const created = await userService.createApiKey(req.user.userId, { name, sandbox: !!sandbox });
+    const { name, sandbox, scopes } = req.body || {};
+    let normalizedScopes;
+    try {
+      normalizedScopes = normalizeApiKeyScopes(scopes);
+    } catch (err) {
+      return apiError(res, 'invalid_request', err.message);
+    }
+    const created = await userService.createApiKey(req.user.userId, { name, sandbox: !!sandbox, scopes: normalizedScopes });
     res.json({
       ...created,
       createdAt: new Date().toISOString(),

@@ -138,6 +138,32 @@ class AuthService {
       }
     };
   }
+
+  // Enforces the tasks:read/tasks:write split a developer picked when
+  // minting an API key. JWT requests carry full account privileges and skip
+  // this entirely, same as before scopes existed. GET/HEAD requires
+  // tasks:read; every other method requires tasks:write. Must run after
+  // requireApiKeyOrJWT() so req.authMethod/req.apiKey are populated.
+  //
+  // POST /mcp is deliberately exempt: it multiplexes several JSON-RPC
+  // operations (some read, some write) behind one HTTP method, so a blanket
+  // POST=write check here would block a read-only key from calling
+  // get_triage over MCP. Per-operation enforcement instead happens when the
+  // MCP tool handler calls back into these same REST routes with the same
+  // key — see src/mcp/tools.js.
+  requireScope() {
+    return (req, res, next) => {
+      if (req.authMethod !== 'apiKey') return next();
+      if (req.path === '/mcp') return next();
+
+      const required = ['GET', 'HEAD'].includes(req.method) ? 'tasks:read' : 'tasks:write';
+      const granted = new Set((req.apiKey.scopes || '').split(',').map(s => s.trim()).filter(Boolean));
+      if (!granted.has(required)) {
+        return apiError(res, 'forbidden', `This API key is missing the '${required}' scope`);
+      }
+      next();
+    };
+  }
 }
 
 module.exports = AuthService;

@@ -198,11 +198,69 @@ async function testIdempotency() {
   await api('POST', '/api/sandbox/reset', null, sandboxKey); // clean up the tasks this test created
 }
 
+async function testIdempotencyOnDelete() {
+  section('Idempotency-Key on delete (not just create)');
+
+  const list = await api('GET', '/api/lists/sandbox-list-work/tasks', null, sandboxKey);
+  const taskId = list.data.tasks?.[0]?.id;
+  assert(!!taskId, 'Found a sandbox task to delete', 'No sandbox task available to delete', list.data);
+  if (!taskId) return;
+
+  const idemKey = `test-beta-idem-delete-${Date.now()}`;
+  const first = await api('DELETE', `/api/lists/sandbox-list-work/tasks/${taskId}`, null, sandboxKey, { 'Idempotency-Key': idemKey });
+  assert(first.status === 200, 'First delete with Idempotency-Key succeeded', 'First idempotent delete failed', first.data);
+
+  const replay = await api('DELETE', `/api/lists/sandbox-list-work/tasks/${taskId}`, null, sandboxKey, { 'Idempotency-Key': idemKey });
+  assert(replay.status === 200 && replay.data.success === true,
+    'Replayed delete returns the original success response, not a 404', 'Replayed delete did not match original', { first: first.data, replay: replay.data });
+
+  await api('POST', '/api/sandbox/reset', null, sandboxKey);
+}
+
 async function testScopeEnforcement() {
   section('Structural scope: API key excluded from billing/account routes');
 
   const billing = await api('GET', '/billing/status', null, sandboxKey);
   assert(billing.status === 401, 'Sandbox API key rejected on /billing/status (JWT-only route)', 'API key was unexpectedly accepted on a billing route', billing.data);
+}
+
+async function testReadWriteScopeEnforcement() {
+  section('tasks:read vs tasks:write scope enforcement');
+
+  const badScope = await api('POST', '/auth/api-keys', { name: 'bad-scope', scopes: ['tasks:frobnicate'] }, jwt);
+  assert(badScope.status === 400 && badScope.data.error?.code === 'invalid_request',
+    'Minting a key with an unknown scope is rejected', 'Invalid scope was accepted', badScope.data);
+
+  const created = await api('POST', '/auth/api-keys', { name: 'test-beta-readonly', sandbox: true, scopes: ['tasks:read'] }, jwt);
+  assert(created.status === 200 && created.data.scopes === 'tasks:read',
+    'Minted a read-only sandbox key', 'Failed to mint a read-only key', created.data);
+  if (!created.data.apiKey) return;
+  const readOnlyKeyId = created.data.id;
+  const readOnlyKey = created.data.apiKey;
+
+  const read = await api('GET', '/api/tasks/unified', null, readOnlyKey);
+  assert(read.status === 200, 'Read-only key can GET /api/tasks/unified', 'Read-only key was rejected on a read', read.data);
+
+  const write = await api('POST', '/api/lists/sandbox-list-work/tasks', { name: 'should be blocked' }, readOnlyKey);
+  assert(write.status === 403 && write.data.error?.code === 'forbidden',
+    'Read-only key is rejected (403) creating a task', 'Read-only key was able to write', write.data);
+
+  const update = await api('PATCH', '/api/lists/sandbox-list-work/tasks/sandbox-task-1', { name: 'nope' }, readOnlyKey);
+  assert(update.status === 403, 'Read-only key is rejected (403) updating a task', 'Read-only key was able to update', update.data);
+
+  const rulesWrite = await api('PUT', '/auth/me/classification', { now: {}, next: {}, later: {} }, readOnlyKey);
+  assert(rulesWrite.status === 403, 'Read-only key is rejected (403) writing classification rules', 'Read-only key was able to write rules', rulesWrite.data);
+
+  const reset = await api('POST', '/api/sandbox/reset', null, readOnlyKey);
+  assert(reset.status === 403, 'Read-only key is rejected (403) on /api/sandbox/reset', 'Read-only key was able to reset sandbox', reset.data);
+
+  // A full-scope (default) key must still be able to write — confirms the
+  // enforcement is additive, not a regression on normal keys.
+  const fullScopeWrite = await api('POST', '/api/lists/sandbox-list-work/tasks', { name: 'allowed' }, sandboxKey);
+  assert(fullScopeWrite.status === 201, 'Default full-scope key can still write', 'Full-scope key was unexpectedly blocked', fullScopeWrite.data);
+  await api('POST', '/api/sandbox/reset', null, sandboxKey);
+
+  await api('DELETE', `/auth/api-keys/${readOnlyKeyId}`, null, jwt);
 }
 
 async function testRevocation() {
@@ -227,7 +285,9 @@ async function run() {
     await testClassificationRules();
     await testSandboxWritesAndReset();
     await testIdempotency();
+    await testIdempotencyOnDelete();
     await testScopeEnforcement();
+    await testReadWriteScopeEnforcement();
     await testRevocation();
   }
 

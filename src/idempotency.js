@@ -2,12 +2,16 @@ const crypto = require('crypto');
 const { pool } = require('./db/db');
 const { apiError } = require('./errors');
 
-// Applied only to POST /api/lists/:listId/tasks — the one write the lean
-// beta doc calls out (agents retry tool calls more readily than humans
-// retry form submissions, risking duplicate task creation on a dropped
-// response). Same Idempotency-Key + same body → replay the stored response.
-// Same key + different body → 409, since silently accepting either
-// interpretation would hide a caller bug.
+// Applied to all task write routes (create/update/complete/delete) — agents
+// retry tool calls more readily than humans retry form submissions, and a
+// dropped response shouldn't risk a duplicate or conflicting side effect.
+// Same Idempotency-Key + same body → replay the stored response. Same key +
+// different body → 400, since silently accepting either interpretation
+// would hide a caller bug. Create is the highest-value case (each retry
+// would otherwise mint a new task); update/complete are naturally
+// idempotent already (same body → same end state) and delete fails safe on
+// a bare retry (404, not data loss) — this covers them anyway for a
+// consistent replayed response instead of a confusing second-call error.
 async function idempotencyMiddleware(req, res, next) {
   const key = req.headers['idempotency-key'];
   if (!key) return next();
