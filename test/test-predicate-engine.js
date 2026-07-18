@@ -2,18 +2,19 @@
 
 /**
  * Predicate Engine Tests — pure unit tests, no running server needed
- * (see docs/triage-engine-implementation-plan.md, Phase 1).
+ * (see docs/triage-engine-implementation-plan.md, Phase 1 and Phase 2).
  *
  * Covers src/classification/predicateEngine.js (evaluatePredicate: all/any/not
- * composition, each op) and src/classification/classify.js (the
- * legacy-vs-v2 classifyTask dispatcher).
+ * composition, each op; evaluateWithReason: explainability), and
+ * src/classification/classify.js (the legacy-vs-v2 classifyTask dispatcher,
+ * and the *WithReason variants).
  *
  * Usage:
  *   node test/test-predicate-engine.js
  */
 
-const { evaluatePredicate } = require('../src/classification/predicateEngine');
-const { classifyTask, classifyTaskLegacy, classifyTaskV2 } = require('../src/classification/classify');
+const { evaluatePredicate, evaluateWithReason, describePredicate } = require('../src/classification/predicateEngine');
+const { classifyTask, classifyTaskLegacy, classifyTaskV2, classifyTaskWithReason, classifyTaskLegacyWithReason, classifyTaskV2WithReason } = require('../src/classification/classify');
 
 let passed = 0, failed = 0;
 function pass(msg) { console.log(`  ✓  ${msg}`); passed++; }
@@ -137,6 +138,68 @@ function testClassifyDispatch() {
     'completed tasks classify to null under v2 rules', 'completed-task handling failed (v2)');
 }
 
+function testExplainability() {
+  section('Explainability (evaluateWithReason / classifyTaskWithReason)');
+
+  const leaf = evaluateWithReason({ priority: 'high' }, { field: 'priority', op: 'eq', value: 'high' }, context);
+  assert(leaf.matched === true && leaf.reason === 'priority = "high"',
+    'a matched leaf carries a human-readable reason', 'leaf reason wrong or missing', leaf);
+
+  const unmatched = evaluateWithReason({ priority: 'low' }, { field: 'priority', op: 'eq', value: 'high' }, context);
+  assert(unmatched.matched === false && unmatched.reason === null,
+    'an unmatched node carries no reason (null, not a misleading string)', 'unmatched node should have reason: null', unmatched);
+
+  // "any" must report only the branch that actually fired, not a generic
+  // "an any-block matched" — that's the part of explainability actually
+  // useful to a rule-tuning UI or an agent.
+  const anyNode = { any: [{ field: 'priority', op: 'eq', value: 'high' }, { field: 'dueDate', op: 'overdue' }] };
+  const anySecondBranch = evaluateWithReason({ priority: 'low', dueDate: iso(-1) }, anyNode, context);
+  assert(anySecondBranch.reason === 'dueDate is overdue',
+    'any reports the specific branch that matched, not the whole OR block', 'any reason should identify the firing branch', anySecondBranch);
+
+  const allNode = { all: [{ field: 'priority', op: 'eq', value: 'high' }, { field: 'dueDate', op: 'overdue' }] };
+  const allBoth = evaluateWithReason({ priority: 'high', dueDate: iso(-1) }, allNode, context);
+  assert(allBoth.reason === 'priority = "high" AND dueDate is overdue',
+    'all joins every child\'s reason (all of them necessarily matched)', 'all reason should join every child reason', allBoth);
+
+  const notNode = { not: { field: 'dueDate', op: 'overdue' } };
+  const notMatch = evaluateWithReason({ dueDate: iso(3) }, notNode, context);
+  assert(notMatch.reason === 'NOT (dueDate is overdue)',
+    'not describes the negated child structurally', 'not reason format wrong', notMatch);
+
+  assert(describePredicate({}) === '(empty)', 'describePredicate renders an empty node as (empty)', 'describePredicate empty-node rendering wrong');
+  assert(describePredicate({ field: 'priority', op: 'eq', value: 'high' }) === 'priority = "high"',
+    'describePredicate renders a leaf the same way evaluateWithReason does', 'describePredicate leaf rendering wrong');
+
+  section('classifyTaskWithReason');
+
+  const legacyRules = { now: { overdue: true, priorities: ['high'] }, next: { future_due: true, priorities: ['normal'] }, later: {} };
+  const overdueHigh  = { priority: 'high', dueDate: iso(-1), completed: false };
+  const legacyResult = classifyTaskLegacyWithReason(overdueHigh, legacyRules);
+  assert(legacyResult.bucket === 'now' && legacyResult.reason.includes('overdue') && legacyResult.reason.includes('priority "high"'),
+    'legacy classifier reason mentions both overdue and the matching priority', 'legacy classifyTaskWithReason reason wrong', legacyResult);
+  assert(classifyTaskLegacy(overdueHigh, legacyRules) === legacyResult.bucket,
+    'classifyTaskLegacy (bare) still returns exactly classifyTaskLegacyWithReason(...).bucket', 'legacy bare/reason dispatch diverged');
+
+  const v2Rules = { schemaVersion: 2, now: { any: [{ field: 'dueDate', op: 'overdue' }, { field: 'priority', op: 'eq', value: 'high' }] }, next: {}, later: {} };
+  const v2Result = classifyTaskV2WithReason(overdueHigh, v2Rules);
+  assert(v2Result.bucket === 'now' && v2Result.reason === 'dueDate is overdue',
+    'v2 classifier reason identifies the specific matching branch', 'v2 classifyTaskWithReason reason wrong', v2Result);
+  assert(classifyTaskV2(overdueHigh, v2Rules) === v2Result.bucket,
+    'classifyTaskV2 (bare) still returns exactly classifyTaskV2WithReason(...).bucket', 'v2 bare/reason dispatch diverged');
+
+  assert(classifyTaskWithReason(overdueHigh, v2Rules).bucket === classifyTask(overdueHigh, v2Rules),
+    'classifyTaskWithReason dispatcher agrees with the bare classifyTask dispatcher', 'WithReason dispatcher diverged from bare dispatcher');
+
+  const later = classifyTaskWithReason({ priority: 'low', dueDate: null, completed: false }, legacyRules);
+  assert(later.bucket === 'later' && later.reason === 'no now/next rule matched',
+    'the later fallback carries an explicit reason, not null', 'later-bucket reason should be an explicit fallthrough message', later);
+
+  const completed = classifyTaskWithReason({ completed: true, priority: 'high', dueDate: iso(-1) }, legacyRules);
+  assert(completed.bucket === null && completed.reason === null,
+    'a completed task has both bucket and reason null', 'completed-task WithReason handling wrong', completed);
+}
+
 function run() {
   console.log('Predicate Engine Tests — hb-task-server-enterprise');
   console.log('═'.repeat(62));
@@ -144,6 +207,7 @@ function run() {
   testOps();
   testComposition();
   testClassifyDispatch();
+  testExplainability();
 
   console.log('\n' + '═'.repeat(62));
   console.log(`Results: ${passed} passed, ${failed} failed`);

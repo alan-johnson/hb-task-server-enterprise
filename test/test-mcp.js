@@ -116,6 +116,35 @@ async function testStdioTransport(apiKey) {
       assert(parsed.total === 9, `get_triage returned sandbox fixture data (total=${parsed.total})`, 'Unexpected triage total', parsed);
     }
 
+    // set_rules with schemaVersion:2 — the tool's inputSchema previously only
+    // declared now/next/later, so schemaVersion was silently dropped before
+    // ever reaching the REST call. Confirms the fix actually round-trips
+    // through the real stdio transport, not just that the code reads right.
+    const setV2 = await client.callTool({
+      name: 'set_rules',
+      arguments: {
+        schemaVersion: 2,
+        now: { any: [{ field: 'dueDate', op: 'overdue' }, { field: 'priority', op: 'eq', value: 'high' }] },
+        next: { field: 'dueDate', op: 'future_due' },
+        later: {}
+      }
+    });
+    assert(!setV2.isError, 'set_rules with schemaVersion:2 succeeded over MCP', 'set_rules(v2) tool call failed', setV2);
+    if (!setV2.isError) {
+      const saved = JSON.parse(setV2.content[0].text);
+      assert(saved.rules?.schemaVersion === 2, 'schemaVersion:2 was actually persisted, not stripped', 'schemaVersion missing from the saved rules — the tool schema fix regressed', saved);
+    }
+
+    const triageAfterV2 = await client.callTool({ name: 'get_triage', arguments: {} });
+    if (!triageAfterV2.isError) {
+      const parsed = JSON.parse(triageAfterV2.content[0].text);
+      const escalation = (parsed.tasks || []).find(t => t.name === 'Reply to client escalation');
+      assert(escalation?.classification === 'now', 'Triage over MCP reflects the v2 rules just set (overdue high-priority task -> now)', 'v2 rules set via MCP did not affect triage', escalation);
+    }
+
+    // Reset — no MCP tool for this, use the REST route directly with the same key.
+    await api('DELETE', '/auth/me/classification', null, apiKey);
+
     await client.close();
   } catch (err) {
     fail('Stdio transport test threw', err.message);

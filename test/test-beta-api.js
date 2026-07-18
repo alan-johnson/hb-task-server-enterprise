@@ -128,6 +128,9 @@ async function testSandboxTriage() {
   const classifications = new Set((unified.data.tasks || []).map(t => t.classification).filter(Boolean));
   assert(classifications.has('now') && classifications.has('next') && classifications.has('later'),
     'Sandbox fixture spans Now/Next/Later', 'Sandbox fixture missing a triage bucket', [...classifications]);
+  const classified = unified.data.tasks.filter(t => t.classification !== null);
+  assert(classified.every(t => typeof t.classificationReason === 'string' && t.classificationReason.length > 0),
+    'Every classified task carries a non-empty classificationReason', 'Missing or empty classificationReason on GET /api/tasks/unified', classified.map(t => t.classificationReason));
 
   const filtered = await api('GET', '/api/tasks/unified?list_id=sandbox-list-personal', null, sandboxKey);
   assert(filtered.status === 200 && filtered.data.total === 3 && filtered.data.tasks.every(t => t.listId === 'sandbox-list-personal'),
@@ -230,6 +233,8 @@ async function testClassificationPreview() {
   const incomplete = preview.data.tasks.filter(t => t.classification !== null);
   assert(incomplete.length > 0 && incomplete.every(t => t.classification === 'now'),
     'Preview classified every incomplete task as now under the "matches everything" candidate ruleset', 'Preview did not apply the candidate ruleset correctly', preview.data.tasks);
+  assert(incomplete.every(t => typeof t.classificationReason === 'string' && t.classificationReason.length > 0),
+    'Preview response carries a non-empty classificationReason per task', 'Preview tasks missing classificationReason', incomplete.map(t => t.classificationReason));
 
   const after = await api('GET', '/auth/me/classification', null, sandboxKey);
   assert(JSON.stringify(after.data.rules) === JSON.stringify(before.data.rules) && after.data.isCustom === before.data.isCustom,
@@ -238,6 +243,31 @@ async function testClassificationPreview() {
   const malformedPreview = await api('POST', '/auth/me/classification/preview', { rules: { schemaVersion: 2, now: { field: 'x', op: 'bogus' }, next: {}, later: {} } }, sandboxKey);
   assert(malformedPreview.status === 400 && malformedPreview.data.error?.code === 'invalid_request',
     'Preview with a malformed ruleset is rejected (400 invalid_request)', 'Malformed preview rules were not rejected', malformedPreview.data);
+}
+
+async function testPresets() {
+  section('GET /auth/me/classification/presets + applying one');
+
+  const list = await api('GET', '/auth/me/classification/presets', null, sandboxKey);
+  assert(list.status === 200 && Array.isArray(list.data.presets), 'GET presets returned 200 with a presets array', 'Presets list request failed', list.data);
+  const ids = (list.data.presets || []).map(p => p.id);
+  assert(['gtd', 'eisenhower', 'support_triage'].every(id => ids.includes(id)),
+    `Presets list includes gtd/eisenhower/support_triage (got ${ids.join(', ')})`, 'Expected preset missing from list', ids);
+  assert(list.data.presets.every(p => p.rules?.schemaVersion === 2 && p.label && p.description),
+    'Every preset has a label, description, and a schemaVersion:2 ruleset', 'A preset is missing label/description/rules', list.data.presets);
+
+  // Applying a preset is just PUT with its rules — verify one actually
+  // works end-to-end against real sandbox data, not just that it validates.
+  const gtd = list.data.presets.find(p => p.id === 'gtd');
+  const applied = await api('PUT', '/auth/me/classification', gtd.rules, sandboxKey);
+  assert(applied.status === 200 && applied.data.rules?.schemaVersion === 2, 'Applied the gtd preset via PUT', 'Failed to apply gtd preset', applied.data);
+
+  const triage = await api('GET', '/api/tasks/unified', null, sandboxKey);
+  const escalation = (triage.data.tasks || []).find(t => t.name === 'Reply to client escalation');
+  assert(escalation?.classification === 'now', 'gtd preset classifies the overdue high-priority sandbox task as now', 'gtd preset did not classify as expected', escalation);
+
+  const reset = await api('DELETE', '/auth/me/classification', null, sandboxKey);
+  assert(reset.status === 200, 'Reset sandbox key\'s account back to default rules after the presets test', 'Failed to reset classification rules', reset.data);
 }
 
 async function testSandboxWritesAndReset() {
@@ -377,6 +407,7 @@ async function run() {
     await testAdminDefaultsStructural();
     await testV2PredicateRules();
     await testClassificationPreview();
+    await testPresets();
     await testSandboxWritesAndReset();
     await testIdempotency();
     await testIdempotencyOnDelete();

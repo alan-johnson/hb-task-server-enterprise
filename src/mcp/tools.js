@@ -67,16 +67,17 @@ function createUpqMcpServer({ baseUrl, apiKey }) {
     'set_rules',
     {
       title: 'Set triage rules',
-      description: 'Replaces the caller\'s Now/Next/Later classification rules.',
+      description: 'Replaces the caller\'s Now/Next/Later classification rules. Two shapes: the legacy {overdue,priorities} form, or a schemaVersion:2 predicate tree ({any:[...]}/{all:[...]}/{not:...}) for expressing combinations like "high priority AND due within 3 days" that the legacy form cannot.',
       inputSchema: {
-        now: z.object({}).passthrough().describe('Now bucket rule, e.g. {"overdue":true,"priorities":["high"]}'),
-        next: z.object({}).passthrough().describe('Next bucket rule, e.g. {"future_due":true,"priorities":["normal"]}'),
+        schemaVersion: z.literal(2).optional().describe('Set to 2 to use predicate-tree rules for now/next/later instead of the legacy {overdue,priorities} shape; omit entirely for legacy rules'),
+        now: z.object({}).passthrough().describe('Now bucket rule — legacy: {"overdue":true,"priorities":["high"]}; schemaVersion:2: a predicate tree, e.g. {"any":[{"field":"dueDate","op":"overdue"},{"field":"priority","op":"eq","value":"high"}]}'),
+        next: z.object({}).passthrough().describe('Next bucket rule, e.g. {"future_due":true,"priorities":["normal"]} or a schemaVersion:2 predicate tree'),
         later: z.object({}).passthrough().describe('Later bucket rule, e.g. {}')
       }
     },
-    async ({ now, next, later }) => {
+    async ({ schemaVersion, now, next, later }) => {
       try {
-        const data = await upqClient.setRules(baseUrl, apiKey, { now, next, later });
+        const data = await upqClient.setRules(baseUrl, apiKey, { schemaVersion, now, next, later });
         return jsonResult(data);
       } catch (err) {
         return toolError(err);

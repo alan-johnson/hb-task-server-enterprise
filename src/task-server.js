@@ -45,8 +45,9 @@ const UserService = require('./auth/userService');
 const { apiError } = require('./errors');
 const { createRedisStore } = require('./rateLimitStore');
 const { idempotencyMiddleware } = require('./idempotency');
-const { classifyTask } = require('./classification/classify');
+const { classifyTaskWithReason } = require('./classification/classify');
 const { validateRules } = require('./classification/rulesSchema');
+const { listPresets } = require('./classification/presets');
 
 const stripe = process.env.STRIPE_SECRET_KEY
   ? require('stripe')(process.env.STRIPE_SECRET_KEY)
@@ -1031,6 +1032,15 @@ app.put('/admin/classification/defaults', authService.requireAuth(), authService
   }
 });
 
+// Named starting-point rulesets (see docs/triage-engine-implementation-plan.md,
+// Phase 2) so a developer or product-designer persona doesn't have to
+// hand-write predicate JSON from scratch. Applying one is just
+// PUT /auth/me/classification with its `rules` value — no separate write
+// route, this is discovery only.
+app.get('/auth/me/classification/presets', ...apiKeyAuth, (req, res) => {
+  res.json({ presets: listPresets() });
+});
+
 // Parse a TOML classification file and return validated rules (no save)
 app.post('/auth/me/classification/parse', ...apiKeyAuth, async (req, res) => {
   try {
@@ -1064,6 +1074,15 @@ app.post('/auth/me/classification/parse', ...apiKeyAuth, async (req, res) => {
 // ============================================
 
 const CLASSIFICATION_ORDER = { now: 0, next: 1, later: 2 };
+
+// Annotates a task with both `classification` and `classificationReason`
+// (see docs/triage-engine-implementation-plan.md, Phase 2 — explainability).
+// Additive to the plain `classification` field every existing client already
+// reads; classificationReason is new and safe to ignore.
+function annotateClassification(task, rules) {
+  const { bucket, reason } = classifyTaskWithReason(task, rules);
+  return { ...task, classification: bucket, classificationReason: reason };
+}
 
 // Applies ?list_id= / ?exclude_list= (comma-separated list IDs) and
 // ?limit=/?offset= to an already-fetched, already-classified task array.
@@ -1172,7 +1191,7 @@ app.get('/api/tasks/unified', ...apiKeyAuthSub, async (req, res) => {
     const { allTasks, providerErrors } = await fetchAllTasksForUser(req, userId);
 
     const rules    = await userService.getClassificationRules(userId) || await getSystemDefault();
-    const annotated = allTasks.map(t => ({ ...t, classification: classifyTask(t, rules) }));
+    const annotated = allTasks.map(t => annotateClassification(t, rules));
     const result   = { user: req.user.username, tasks: annotated };
 
     // Only cache complete results — partial results should retry on next request
@@ -1217,7 +1236,7 @@ app.post('/auth/me/classification/preview', ...apiKeyAuth, async (req, res) => {
     const userId = req.user.userId;
 
     const { allTasks, providerErrors } = await fetchAllTasksForUser(req, userId);
-    const annotated = allTasks.map(t => ({ ...t, classification: classifyTask(t, rules) }));
+    const annotated = allTasks.map(t => annotateClassification(t, rules));
 
     let responseTasks = annotated;
     if (req.query.sort === 'classification') {
@@ -1352,7 +1371,7 @@ app.get('/api/lists/:listId/tasks', ...apiKeyAuthSub, async (req, res) => {
     await initializeProvider(provider, providerName, req.user.userId);
     const tasks = await provider.getTasks(listId);
     const rules = await userService.getClassificationRules(req.user.userId) || await getSystemDefault();
-    const annotated = tasks.map(t => ({ ...t, classification: classifyTask(t, rules) }));
+    const annotated = tasks.map(t => annotateClassification(t, rules));
     const result = { provider: providerName, user: req.user.username, listId, tasks: annotated };
     cache.set(cacheKey, result, TTL.tasks);
     res.json(result);
@@ -1369,7 +1388,7 @@ app.get('/api/lists/:listId/tasks/:taskId', ...apiKeyAuthSub, async (req, res) =
 
     const task = await provider.getTask(listId, taskId);
     const rules = await userService.getClassificationRules(req.user.userId) || await getSystemDefault();
-    res.json({ provider: providerName, user: req.user.username, listId, task: { ...task, classification: classifyTask(task, rules) } });
+    res.json({ provider: providerName, user: req.user.username, listId, task: annotateClassification(task, rules) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
