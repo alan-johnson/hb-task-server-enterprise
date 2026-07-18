@@ -1,0 +1,231 @@
+/* UpQ app-shell components — dark reskin to sit alongside site-theme.css.
+   Draft only: targets classes defined in style.css that site-theme.css
+   doesn't reach (auth forms, dashboard, lists, tasks, modals, banners). */
+:root {
+  --hb-danger: #ff4b6a;
+  --hb-radius: 10px;
+}
+
+/* ── Header inset ──
+   site-theme.css already declares `body > header { width: min(1040px, calc(100% - 48px)); margin: 0 auto; }`
+   intending a responsive side gap, but it loses to style.css's `.site-header { width: 100% }`
+   on specificity (class beats two type selectors) — so on these app pages the header row
+   was rendering full-bleed, flush against the viewport edges. Re-assert it here with equal
+   specificity plus !important so the logo/product-name row always keeps a device-scaled
+   side margin instead of touching the edges. */
+.site-header {
+  width: min(1040px, calc(100% - 48px)) !important;
+  margin: 0 auto !important;
+  box-sizing: border-box;
+}
+@media (max-width: 650px) {
+  .site-header { width: min(1040px, calc(100% - 32px)) !important; flex-wrap: wrap; gap: 10px; }
+}
+
+/* ── UpQ text wordmark (replaces the UpQ-branding-image-web.png raster) ── */
+.upq-logo-lockup {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.upq-logo-text {
+  color: var(--hb-accent) !important;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-size: 28px;
+}
+.upq-logo-tagline {
+  color: var(--hb-muted) !important;
+  font-weight: 400;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+.site-header.hero .upq-logo-text { font-size: 40px; }
+.site-header.hero .upq-logo-tagline { font-size: 15px; margin-top: 6px; }
+@media (max-width: 650px) {
+  .site-header.hero .upq-logo-text { font-size: 30px; }
+  .site-header.hero .upq-logo-tagline { font-size: 13px; }
+}
+
+/* ── handsbreadth wordmark lockup (logo image + tagline underneath) ── */
+/* Logo image sizing copied verbatim from handsbreadth.com's body > header:
+   style.css .logo-constrained (max-height 50px, width auto, display block)
+   overridden by site-theme.css .logo-constrained (max-height 32px !important). */
+.logo-constrained {
+  max-height: 32px !important;
+  width: auto !important;
+  display: block !important;
+}
+.hb-logo-lockup {
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+}
+.hb-logo-tagline {
+  color: var(--hb-muted) !important;
+  font-weight: 400;
+  font-size: 10px;
+  letter-spacing: 0.01em;
+  margin-top: 3px;
+  white-space: nowrap;
+}
+.site-header.hero .hb-logo-tagline { font-size: 16px; margin-top: 8px; }
+@media (max-width: 650px) {
+  .site-header.hero .hb-logo-tagline { font-size: 14px; }
+}
+
+/* ── Auth forms (login / reset-password) ── */
+.auth-container {
+  background: var(--hb-card) !important;
+  border: 1px solid var(--hb-border);
+  box-shadow: var(--hb-shadow);
+  color: var(--hb-text);
+}
+.auth-container h1 { color: var(--hb-text) !important; }
+.form-group label { color: var(--hb-muted) !important; }
+.form-group input, .modal-box textarea, .modal-box select {
+  background: var(--hb-bg-alt) !important;
+  border: 1px solid var(--hb-border) !important;
+  color: var(--hb-text) !important;
+}
+.form-group input:focus, .modal-box textarea:focus, .modal-box select:focus {
+  border-color: var(--hb-accent) !important;
+}
+.toggle-link { color: var(--hb-muted) !important; }
+.toggle-link a { color: var(--hb-accent) !important; }
+.error-msg {
+  background: rgba(255, 75, 106, .1) !important;
+  border-color: rgba(255, 75, 106, .35) !important;
+  color: #ff8095 !important;
+}
+
+/* ── Buttons ── */
+.btn-primary {
+  background: linear-gradient(135deg, var(--hb-accent), var(--hb-accent-2)) !important;
+  color: #050816 !important;
+}
+.btn-secondary { background: var(--hb-bg-alt) !important; color: var(--hb-text) !important; border: 1px solid var(--hb-border); }
+.btn-danger { background: var(--hb-danger) !important; color: #fff !important; }
+
+/* ── Dashboard / app shell ── */
+.dashboard-container { color: var(--hb-text); }
+.dashboard-header h1 { color: var(--hb-text) !important; }
+.user-info { color: var(--hb-muted) !important; }
+.section-title { color: var(--hb-text) !important; }
+
+/* ── Provider cards ── */
+.provider-card {
+  background: var(--hb-card) !important;
+  border: 1px solid var(--hb-border) !important;
+  box-shadow: none !important;
+  border-radius: var(--hb-radius) !important;
+}
+.provider-name { color: var(--hb-text) !important; }
+.provider-desc { color: var(--hb-muted) !important; }
+
+.badge-builtin { background: rgba(47, 208, 255, .12) !important; color: var(--hb-accent) !important; }
+.badge-connected { background: rgba(123, 92, 255, .16) !important; color: #b3a1ff !important; }
+
+/* ── Banners ── */
+.banner-success { background: rgba(47, 208, 255, .1) !important; color: var(--hb-accent) !important; border-color: rgba(47, 208, 255, .3) !important; }
+.banner-error { background: rgba(255, 75, 106, .1) !important; color: #ff8095 !important; border-color: rgba(255, 75, 106, .3) !important; }
+.banner-warning { background: rgba(255, 197, 61, .1) !important; color: #ffcc66 !important; border-color: rgba(255, 197, 61, .3) !important; }
+
+/* ── Filter bar ── */
+.filter-btn {
+  background: var(--hb-card) !important;
+  border-color: var(--hb-border) !important;
+  color: var(--hb-muted) !important;
+}
+.filter-btn:hover { background: var(--hb-bg-alt) !important; }
+.filter-btn.active {
+  background: linear-gradient(135deg, var(--hb-accent), var(--hb-accent-2)) !important;
+  border-color: transparent !important;
+  color: #050816 !important;
+}
+
+/* ── List cards ── */
+.list-card {
+  background: var(--hb-card) !important;
+  box-shadow: none !important;
+  border: 1px solid var(--hb-border) !important;
+  border-radius: var(--hb-radius) !important;
+}
+.list-name { color: var(--hb-text) !important; }
+.list-meta { color: var(--hb-muted) !important; }
+.list-count { background: var(--hb-bg-alt) !important; color: var(--hb-muted) !important; }
+.list-count-loading { color: #565f78 !important; }
+.list-card-link:hover { box-shadow: 0 8px 24px rgba(0,0,0,.35) !important; }
+
+.empty-state, .loading-state { color: var(--hb-muted) !important; }
+.empty-state a { color: var(--hb-accent) !important; }
+.spinner { border-color: var(--hb-border) !important; border-top-color: var(--hb-accent) !important; }
+
+/* ── Tasks ── */
+.tasks-section-label { color: #6b7590 !important; }
+.task-card {
+  background: var(--hb-card) !important;
+  box-shadow: none !important;
+  border: 1px solid var(--hb-border) !important;
+  border-radius: var(--hb-radius) !important;
+}
+.task-card-done { background: var(--hb-bg-alt) !important; border-color: var(--hb-border) !important; }
+.task-name { color: var(--hb-text) !important; }
+.task-name-done { color: #565f78 !important; }
+.task-due, .task-notes { color: var(--hb-muted) !important; }
+.task-expand-icon { color: var(--hb-muted) !important; }
+.task-card-expandable:hover { box-shadow: 0 8px 24px rgba(0,0,0,.3) !important; }
+.task-body-expandable:hover .task-name { color: var(--hb-accent) !important; }
+
+.task-action-btn { background: transparent !important; border-color: var(--hb-border) !important; color: var(--hb-muted) !important; }
+.task-action-btn:hover { background: var(--hb-bg-alt) !important; color: var(--hb-text) !important; }
+.task-action-delete { color: #ff8095 !important; border-color: rgba(255, 75, 106, .4) !important; }
+.task-action-delete:hover { background: rgba(255, 75, 106, .12) !important; }
+
+.task-provider-badge {
+  background: var(--hb-bg-alt) !important;
+  border-color: var(--hb-border) !important;
+  color: var(--hb-muted) !important;
+}
+.task-provider-badge:hover { background: var(--hb-card) !important; color: var(--hb-text) !important; }
+
+/* Toggle switch */
+.toggle-track { background: var(--hb-border) !important; }
+.toggle-switch input:checked + .toggle-track { background: var(--hb-accent) !important; }
+
+/* Tag pills — keep semantic hues, move onto dark surfaces */
+.tag-pill-now { background: rgba(255, 75, 106, .16) !important; color: #ff8095 !important; }
+.tag-pill-next { background: rgba(255, 197, 61, .16) !important; color: #ffcc66 !important; }
+.tag-pill-later { background: rgba(165, 175, 199, .16) !important; color: var(--hb-muted) !important; }
+
+.task-card-now { border-left-color: #ff4b6a !important; }
+.task-card-next { border-left-color: #ffb020 !important; }
+.task-card-later { border-left-color: var(--hb-border) !important; }
+
+.tag-section-now { color: #ff8095 !important; }
+.tag-section-next { color: #ffcc66 !important; }
+.tag-section-later { color: var(--hb-muted) !important; }
+
+/* ── Modal ── */
+.modal-overlay { background: rgba(0, 0, 0, .6) !important; }
+.modal-box {
+  background: var(--hb-card) !important;
+  border: 1px solid var(--hb-border) !important;
+  box-shadow: var(--hb-shadow) !important;
+  color: var(--hb-text);
+}
+.modal-box h2 { color: var(--hb-text) !important; }
+.modal-warn-text { color: var(--hb-muted) !important; }
+
+/* ── Filter dropdown ── */
+.filter-dropdown {
+  background: var(--hb-card) !important;
+  border: 1px solid var(--hb-border) !important;
+  box-shadow: var(--hb-shadow) !important;
+}
+.filter-option { color: var(--hb-text) !important; }
+.filter-option:hover { background: var(--hb-bg-alt) !important; }
+.filter-icon-btn-active { background: rgba(47, 208, 255, .14) !important; border-color: var(--hb-accent) !important; color: var(--hb-accent) !important; }
+.filter-option-active { color: var(--hb-accent) !important; }

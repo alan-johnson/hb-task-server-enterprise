@@ -1,0 +1,163 @@
+/* Shared Handsbreadth interface — aligned with the UpQ visual system. */
+:root {
+  --hb-bg: #050816;
+  --hb-bg-alt: #0b1020;
+  --hb-card: #11172b;
+  --hb-border: #1f2940;
+  --hb-text: #f5f7ff;
+  --hb-muted: #a5afc7;
+  --hb-accent: #2fd0ff;
+  --hb-accent-2: #7b5cff;
+  --hb-shadow: 0 18px 40px rgba(0, 0, 0, .35);
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(circle at top, #101b3a 0, var(--hb-bg) 55%) !important;
+  color: var(--hb-text) !important;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif !important;
+}
+
+body > header {
+  width: min(1040px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 18px 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border-bottom: 1px solid rgba(31, 41, 64, .8);
+}
+
+.logo-constrained { max-height: 32px !important; }
+
+header nav { display: flex; align-items: center; gap: 4px; }
+header nav a {
+  margin-left: 0 !important;
+  padding: 8px 10px;
+  color: var(--hb-muted) !important;
+  font-size: 13px !important;
+  border-radius: 999px;
+}
+header nav a:hover, header nav a.active { color: var(--hb-accent) !important; background: rgba(47, 208, 255, .08); }
+
+.container { width: min(1040px, calc(100% - 48px)); margin: 0 auto; padding: 64px 0 !important; }
+
+.hero, .product-hero, .cta-strip, .mission-gradient {
+  background: transparent !important;
+  color: var(--hb-text) !important;
+}
+
+.hero, .product-hero {
+  width: min(1040px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 74px 0 !important;
+  position: relative;
+}
+
+.hero { text-align: left !important; }
+.hero::before, .product-hero::before {
+  content: "";
+  position: absolute;
+  width: 360px;
+  height: 360px;
+  right: -80px;
+  top: 12px;
+  background: radial-gradient(circle, rgba(47, 208, 255, .14), transparent 68%);
+  pointer-events: none;
+}
+
+.hero h1, .product-hero h1, .container h1 { color: var(--hb-text) !important; letter-spacing: -.04em; line-height: 1.08; }
+.container h1[style], .container h2[style], .container h3[style] { color: var(--hb-text) !important; }
+.hero h1 { font-size: clamp(2.5rem, 6vw, 4.5rem) !important; max-width: 720px; }
+.hero p, .product-hero .tagline, .container p { color: var(--hb-muted) !important; }
+.container a:not(.cta-btn), .features-section a:not(.cta-btn), .requirements-section a:not(.cta-btn) { color: var(--hb-accent) !important; }
+.product-hero { gap: 52px !important; }
+.product-hero-text { position: relative; z-index: 1; }
+
+.cta-btn, .btn-outline {
+  background: linear-gradient(135deg, var(--hb-accent), var(--hb-accent-2)) !important;
+  color: #050816 !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  box-shadow: var(--hb-shadow);
+}
+.btn-outline:hover, .cta-btn:hover { filter: brightness(1.08); transform: translateY(-1px) !important; }
+
+.grid, .features-grid, .req-grid { gap: 18px !important; }
+.card, .feature-card, .req-card, .screenshot-item img {
+  background: rgba(17, 23, 43, .84) !important;
+  border: 1px solid var(--hb-border) !important;
+  box-shadow: none !important;
+}
+.specialty-item {
+  background: rgba(17, 23, 43, .84) !important;
+  border-left-color: var(--hb-accent) !important;
+  border-radius: 10px;
+  color: var(--hb-muted);
+}
+.specialty-item strong { color: var(--hb-text) !important; }
+.philosophy-image { background: transparent !important; }
+.card, .feature-card { border-radius: 14px !important; }
+.card:hover, .feature-card:hover { border-color: rgba(47, 208, 255, .48) !important; box-shadow: 0 12px 30px rgba(0, 0, 0, .22) !important; }
+.card h3, .feature-card h3, .req-card h4, .features-section h2, .screenshots-section h2, .requirements-section h2, .how-section h2 { color: var(--hb-text) !important; }
+.card p, .feature-card p, .req-card p, .req-card ul, .section-sub, .screenshot-item p, .step p { color: var(--hb-muted) !important; }
+
+.features-section, .screenshots-section, .requirements-section, .how-section { background: transparent !important; }
+.features-section, .screenshots-section, .requirements-section, .how-section { padding: 64px max(24px, calc((100% - 1040px) / 2)) !important; }
+.screenshots-section, .requirements-section { border-color: var(--hb-border) !important; }
+.feature-icon { filter: saturate(.7); }
+
+.badge, .platform-tag { background: rgba(47, 208, 255, .12) !important; color: var(--hb-accent) !important; border: 1px solid rgba(47, 208, 255, .28) !important; }
+.breadcrumb {
+  width: min(1040px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 16px 0 !important;
+  color: var(--hb-muted) !important;
+  border-color: var(--hb-border) !important;
+}
+.breadcrumb a { color: var(--hb-accent) !important; }
+
+.steps { gap: 10px !important; }
+.step-num { background: rgba(47, 208, 255, .16) !important; color: var(--hb-accent) !important; border: 1px solid rgba(47, 208, 255, .35); }
+.step h4 { color: var(--hb-text) !important; }
+
+.cta-strip, .mission-gradient {
+  margin: 30px 0 0 !important;
+  border-top: 1px solid var(--hb-border);
+  border-bottom: 1px solid var(--hb-border);
+  background: linear-gradient(135deg, rgba(47, 208, 255, .12), rgba(123, 92, 255, .12)) !important;
+}
+
+.site-footer, .footer {
+  margin-top: auto;
+  background: rgba(5, 8, 22, .78) !important;
+  border-top: 1px solid var(--hb-border) !important;
+  color: var(--hb-muted) !important;
+}
+.site-footer-inner, .footer-inner {
+  width: min(1040px, calc(100% - 48px));
+  min-height: 82px;
+  margin: 0 auto;
+  padding: 20px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  font-size: 12px;
+}
+.site-footer-links, .footer-links { display: flex; flex-wrap: wrap; gap: 16px; }
+.site-footer a, .footer a { color: var(--hb-muted); }
+.site-footer a:hover, .footer a:hover { color: var(--hb-accent); }
+footer:not(.site-footer):not(.footer) { display: none; }
+
+@media (max-width: 650px) {
+  body > header { width: min(100% - 32px, 1040px); flex-wrap: wrap; gap: 10px; }
+  header nav { width: 100%; overflow-x: auto; }
+  header nav a { padding: 6px 8px; white-space: nowrap; }
+  .hero, .product-hero, .container, .breadcrumb { width: min(100% - 32px, 1040px); }
+  .hero, .product-hero { padding: 48px 0 !important; }
+  .site-footer-inner, .footer-inner { width: min(100% - 32px, 1040px); align-items: flex-start; flex-direction: column; }
+}
