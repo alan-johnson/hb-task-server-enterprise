@@ -33,6 +33,35 @@ body.legal-page .container {
   padding: 3rem 1.5rem !important;
 }
 
+/* privacy.html/terms.html's own `p, li { color: #333 }` (dark gray, designed
+   for the page's original light background) is nearly illegible against the
+   dark theme's navy background — including the bullet marks, which inherit
+   their color from the li text. Brought up to --hb-text (near-white), the
+   theme's standard primary-text token. */
+body.legal-page li {
+  color: var(--hb-text) !important;
+}
+
+/* .highlight (the Google API disclosure callout in privacy.html) and
+   .placeholder (inline editable-value chips in both pages) intentionally
+   keep their original light backgrounds (#fff8e1 / #ffe0e0) as call-outs
+   against the dark theme, but had no text color of their own — they
+   inherited it from the container, which the rebrand set to near-white/
+   cyan. Light text on a light chip is nearly unreadable. Force a dark,
+   brand-navy text color directly on the chip content so there's always
+   strong contrast, clearly distinct from the light body-copy color used
+   everywhere else on the page. */
+body.legal-page .highlight,
+body.legal-page .placeholder {
+  color: var(--hb-bg) !important;
+}
+/* The link inside .highlight still needs to read as a link, not as the
+   same flat dark chip text — brand-primary navy keeps it legible on the
+   light background while remaining visually distinct. */
+body.legal-page .highlight a {
+  color: #182471 !important;
+}
+
 /* ── UpQ text wordmark (replaces the UpQ-branding-image-web.png raster) ── */
 .upq-logo-lockup {
   display: flex;
