@@ -22,6 +22,17 @@
   .site-header { width: min(1040px, calc(100% - 32px)) !important; flex-wrap: wrap; gap: 10px; }
 }
 
+/* ── Legal-page .container guard ──
+   privacy.html and terms.html define their own .container (max-width: 760px,
+   padding: 3rem 1.5rem) for a self-contained legal-doc layout. site-theme.css's
+   shared `.container { padding: 64px 0 !important }` collides on that class
+   name and zeroes the horizontal padding, running text edge-to-edge on
+   mobile. Scope a restore to `body.legal-page` only, so the shared .container
+   rule stays untouched everywhere else it's used. */
+body.legal-page .container {
+  padding: 3rem 1.5rem !important;
+}
+
 /* ── UpQ text wordmark (replaces the UpQ-branding-image-web.png raster) ── */
 .upq-logo-lockup {
   display: flex;
