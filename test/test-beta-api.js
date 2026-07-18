@@ -169,9 +169,22 @@ async function testAdminDefaultsStructural() {
   const viaApiKey = await api('PUT', '/admin/classification/defaults', candidate, sandboxKey);
   assert(viaApiKey.status === 401, 'Sandbox API key rejected on /admin/classification/defaults (JWT-only route)', 'API key was unexpectedly accepted on the admin route', viaApiKey.data);
 
+  // TEST_USER isn't guaranteed to be an admin (ADMIN_USERNAMES) in every
+  // environment — locally/CI it's scripts/create-admin.js's 'admin' account,
+  // but production's real TEST_USER smoke-test credential correctly does
+  // NOT have admin rights (a smoke-test credential doubling as god-mode
+  // admin access would be a security downgrade, not a bug to fix). Handle
+  // both: if TEST_USER is admin, this exercises the actual validation path;
+  // if not, requireAdmin() runs before validation ever sees the body, so
+  // the only thing to confirm is a clean 403, not some other failure mode.
   const malformed = await api('PUT', '/admin/classification/defaults', { schemaVersion: 2, now: { field: 'priority', op: 'bogus' }, next: {}, later: {} }, jwt);
-  assert(malformed.status === 400 && malformed.data.error?.code === 'invalid_request',
-    'Malformed admin default rules rejected (400 invalid_request) rather than reaching the DB', 'Malformed rules were not rejected as expected', malformed.data);
+  if (malformed.status === 403) {
+    assert(malformed.data.error?.code === 'forbidden',
+      'TEST_USER is not an admin in this environment — confirmed a clean 403 (not a validation bypass) rather than testing malformed-rules rejection', 'Non-admin PUT to the admin route returned neither 403 forbidden nor 400 invalid_request', malformed.data);
+  } else {
+    assert(malformed.status === 400 && malformed.data.error?.code === 'invalid_request',
+      'Malformed admin default rules rejected (400 invalid_request) rather than reaching the DB', 'Malformed rules were not rejected as expected', malformed.data);
+  }
 }
 
 async function testV2PredicateRules() {
