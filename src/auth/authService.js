@@ -164,6 +164,26 @@ class AuthService {
       next();
     };
   }
+
+  // Minimal admin gate for the system-classification-defaults route (see
+  // docs/triage-engine-implementation-plan.md, Phase 0). No roles/permissions
+  // table exists in this schema, and building one is out of scope for a
+  // single admin route — configurable instead via ADMIN_USERNAMES
+  // (comma-separated), defaulting to 'admin', the account
+  // scripts/create-admin.js already establishes as this project's designated
+  // ops/test account. Must run after requireAuth() — JWT-only, same as every
+  // other account-management route; never reachable via an API key.
+  requireAdmin() {
+    const admins = new Set(
+      (process.env.ADMIN_USERNAMES || 'admin').split(',').map(s => s.trim()).filter(Boolean)
+    );
+    return (req, res, next) => {
+      if (!admins.has(req.user?.username)) {
+        return apiError(res, 'forbidden', 'Admin access required');
+      }
+      next();
+    };
+  }
 }
 
 module.exports = AuthService;

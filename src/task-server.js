@@ -45,6 +45,8 @@ const UserService = require('./auth/userService');
 const { apiError } = require('./errors');
 const { createRedisStore } = require('./rateLimitStore');
 const { idempotencyMiddleware } = require('./idempotency');
+const { classifyTask } = require('./classification/classify');
+const { validateRules } = require('./classification/rulesSchema');
 
 const stripe = process.env.STRIPE_SECRET_KEY
   ? require('stripe')(process.env.STRIPE_SECRET_KEY)
@@ -61,58 +63,29 @@ const { cleanupIdempotencyKeys } = require('./jobs/idempotencyCleanup');
 const { cleanupApiUsageEvents } = require('./jobs/apiUsageCleanup');
 const { usageLogger } = require('./analytics/usageLogger');
 
-// Load classification config from TOML (once at startup)
+// In-code last resort only — used if the DB is unreachable or the
+// system_classification_defaults table is somehow empty (should never
+// happen after the V3 migration seeds it). Not the primary path; see
+// getSystemDefault() below and docs/triage-engine-implementation-plan.md
+// Phase 0. The boot-time TOML file this used to be loaded from
+// (config/classification.toml) is no longer read here — changing the
+// system-wide default no longer requires a file edit + restart.
 const DEFAULT_CLASSIFICATION = {
   now:   { label: 'Now',   overdue: true, priorities: ['high'] },
   next:  { label: 'Next',  future_due: true, priorities: ['normal'] },
   later: { label: 'Later' }
 };
 
-function loadClassificationConfig() {
-  const configPath = process.env.CLASSIFICATION_CONFIG
-    || path.join(__dirname, '..', 'config', 'classification.toml');
+// Cached inside userService.getSystemDefaultRules() (Redis-backed, shared
+// across any future additional instance — not the in-memory SimpleCache
+// below), so this DB round-trip is cheap on the common path.
+async function getSystemDefault() {
   try {
-    const raw = fs.readFileSync(configPath, 'utf-8');
-    const parsed = TOML.parse(raw);
-    console.log(`Classification config loaded from ${configPath}`);
-    return parsed;
+    return await userService.getSystemDefaultRules() || DEFAULT_CLASSIFICATION;
   } catch (err) {
-    console.warn(`Could not load classification config (${err.message}); using defaults.`);
+    console.error('getSystemDefaultRules failed, using in-code fallback:', err.message);
     return DEFAULT_CLASSIFICATION;
   }
-}
-
-const classificationConfig = loadClassificationConfig();
-
-function classifyTask(task, rules) {
-  if (task.completed) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  let dueDate = null;
-  if (task.dueDate) {
-    const m = task.dueDate.match(/(\d{4})-(\d{2})-(\d{2})/);
-    if (m) {
-      dueDate = new Date(+m[1], +m[2] - 1, +m[3]);
-    } else {
-      const d = new Date(task.dueDate);
-      if (!isNaN(d)) { dueDate = new Date(d); dueDate.setHours(0, 0, 0, 0); }
-    }
-  }
-
-  const priority  = task.priority || 'low';
-  const isOverdue = dueDate && dueDate <= today;
-  const isFuture  = dueDate && dueDate > today;
-
-  const nowMatch = (rules.now.overdue && isOverdue) ||
-                   (rules.now.priorities && rules.now.priorities.includes(priority));
-  if (nowMatch) return 'now';
-
-  const nextMatch = (rules.next.future_due && isFuture) ||
-                    (rules.next.priorities && rules.next.priorities.includes(priority));
-  if (nextMatch) return 'next';
-
-  return 'later';
 }
 
 const app = express();
@@ -911,12 +884,13 @@ app.patch('/auth/default-provider', authService.requireAuth(), async (req, res) 
 app.get('/api/settings', authService.requireAuth(), async (req, res) => {
   try {
     const userId = req.user.userId;
-    const [user, msCreds, gCreds, bridgeHasKey, classificationRules] = await Promise.all([
+    const [user, msCreds, gCreds, bridgeHasKey, classificationRules, systemDefault] = await Promise.all([
       userService.getUser(userId),
       userService.getCredentials(userId, 'microsoft'),
       userService.getCredentials(userId, 'google'),
       userService.hasBridgeApiKey(userId),
       userService.getClassificationRules(userId),
+      getSystemDefault(),
     ]);
 
     res.json({
@@ -936,7 +910,7 @@ app.get('/api/settings', authService.requireAuth(), async (req, res) => {
         connected: bridgeServer.isConnected(userId),
       },
       classification: {
-        rules:    classificationRules || classificationConfig,
+        rules:    classificationRules || systemDefault,
         isCustom: !!classificationRules,
       },
     });
@@ -998,20 +972,25 @@ const apiKeyAuthSub = [...apiKeyAuth, authService.requireSubscriptionUnlessApiKe
 app.get('/auth/me/classification', ...apiKeyAuth, async (req, res) => {
   try {
     const rules = await userService.getClassificationRules(req.user.userId);
-    res.json({ rules: rules || classificationConfig, isCustom: !!rules });
+    res.json({ rules: rules || await getSystemDefault(), isCustom: !!rules });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Save custom rules for this user
+// Save custom rules for this user. Accepts either legacy shape (no
+// schemaVersion, or 1) or a schemaVersion:2 predicate tree (see
+// src/classification/rulesSchema.js) — validated before saving so a
+// malformed tree is rejected here, not discovered later at classify time.
 app.put('/auth/me/classification', ...apiKeyAuth, async (req, res) => {
   try {
-    const { now, next, later } = req.body;
-    if (!now || !next || !later) {
-      return res.status(400).json({ error: 'now, next, and later are required' });
+    const parsed = validateRules(req.body);
+    if (!parsed.success) {
+      return apiError(res, 'invalid_request', 'Invalid classification rules', {
+        issues: parsed.error.issues.map(i => ({ path: i.path.join('.'), message: i.message }))
+      });
     }
-    const rules = { now, next, later };
+    const rules = parsed.data;
     await userService.updateClassificationRules(req.user.userId, rules);
     cache.deletePrefix(`tasks:${req.user.userId}:`);
     cache.delete(`unified:${req.user.userId}`);
@@ -1027,9 +1006,28 @@ app.delete('/auth/me/classification', ...apiKeyAuth, async (req, res) => {
     await userService.resetClassificationRules(req.user.userId);
     cache.deletePrefix(`tasks:${req.user.userId}:`);
     cache.delete(`unified:${req.user.userId}`);
-    res.json({ success: true, rules: classificationConfig });
+    res.json({ success: true, rules: await getSystemDefault() });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin-only: change the system-wide default ruleset used whenever a user
+// has no custom rules of their own (see docs/triage-engine-implementation-plan.md,
+// Phase 0). JWT-only, gated by authService.requireAdmin() — never reachable
+// via an API key, same structural exclusion as billing/account routes.
+app.put('/admin/classification/defaults', authService.requireAuth(), authService.requireAdmin(), async (req, res) => {
+  try {
+    const parsed = validateRules(req.body);
+    if (!parsed.success) {
+      return apiError(res, 'invalid_request', 'Invalid classification rules', {
+        issues: parsed.error.issues.map(i => ({ path: i.path.join('.'), message: i.message }))
+      });
+    }
+    await userService.updateSystemDefaultRules(parsed.data, req.user.userId);
+    res.json({ success: true, rules: parsed.data });
+  } catch (error) {
+    apiError(res, 'internal_error', error.message);
   }
 });
 
@@ -1097,6 +1095,63 @@ function applyListFilterAndPagination(tasks, query) {
   return { tasks: paged, total, hasMore };
 }
 
+// Determines this user's connected providers, fetches every list and task
+// across them, and annotates each raw task with provider/listId/listName —
+// everything /api/tasks/unified needs before classification runs. Extracted
+// so POST /auth/me/classification/preview (dry-run against a candidate
+// ruleset — see docs/triage-engine-implementation-plan.md, Phase 2) can
+// reuse exactly the same aggregation instead of drifting from it. Does not
+// classify or cache — callers do that with whichever ruleset applies to them.
+async function fetchAllTasksForUser(req, userId) {
+  const providerNames  = [];
+  const providerErrors = [];
+
+  if (req.apiKey?.sandbox) {
+    providerNames.push('sandbox');
+  } else {
+    for (const p of ['microsoft', 'google']) {
+      const creds = await userService.getCredentials(userId, p);
+      if (creds) providerNames.push(p);
+    }
+    if (bridgeServer.isConnected(userId)) {
+      providerNames.push('apple');
+    } else if (await userService.hasBridgeApiKey(userId)) {
+      providerErrors.push({ provider: 'apple', error: 'Bridge not connected' });
+    }
+  }
+
+  const allTasks = [];
+
+  await Promise.all(providerNames.map(async (providerName) => {
+    try {
+      const { provider } = getProviderForUser({
+        ...req, query: { provider: providerName }, body: {}
+      });
+      await initializeProvider(provider, providerName, userId);
+      const lists = await provider.getLists();
+
+      await Promise.all(lists.map(async (list) => {
+        try {
+          const tasks = await provider.getTasks(list.id);
+          for (const task of tasks) {
+            allTasks.push({ ...task, provider: providerName, listId: list.id, listName: list.name });
+          }
+        } catch (err) {
+          console.error(`unified: failed to load tasks for list ${list.id} (${providerName}):`, err.message);
+          if (!providerErrors.find(e => e.provider === providerName)) {
+            providerErrors.push({ provider: providerName, error: err.message });
+          }
+        }
+      }));
+    } catch (err) {
+      console.error(`unified: failed to initialize provider ${providerName} for user ${userId}:`, err.message);
+      providerErrors.push({ provider: providerName, error: err.message });
+    }
+  }));
+
+  return { allTasks, providerErrors };
+}
+
 app.get('/api/tasks/unified', ...apiKeyAuthSub, async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -1114,54 +1169,9 @@ app.get('/api/tasks/unified', ...apiKeyAuthSub, async (req, res) => {
       return res.json({ ...cached, tasks: paged, total, hasMore });
     }
 
-    // Determine which providers are connected for this user
-    const providerNames  = [];
-    const providerErrors = [];
+    const { allTasks, providerErrors } = await fetchAllTasksForUser(req, userId);
 
-    if (req.apiKey?.sandbox) {
-      providerNames.push('sandbox');
-    } else {
-      for (const p of ['microsoft', 'google']) {
-        const creds = await userService.getCredentials(userId, p);
-        if (creds) providerNames.push(p);
-      }
-      if (bridgeServer.isConnected(userId)) {
-        providerNames.push('apple');
-      } else if (await userService.hasBridgeApiKey(userId)) {
-        providerErrors.push({ provider: 'apple', error: 'Bridge not connected' });
-      }
-    }
-
-    const allTasks = [];
-
-    await Promise.all(providerNames.map(async (providerName) => {
-      try {
-        const { provider } = getProviderForUser({
-          ...req, query: { provider: providerName }, body: {}
-        });
-        await initializeProvider(provider, providerName, userId);
-        const lists = await provider.getLists();
-
-        await Promise.all(lists.map(async (list) => {
-          try {
-            const tasks = await provider.getTasks(list.id);
-            for (const task of tasks) {
-              allTasks.push({ ...task, provider: providerName, listId: list.id, listName: list.name });
-            }
-          } catch (err) {
-            console.error(`unified: failed to load tasks for list ${list.id} (${providerName}):`, err.message);
-            if (!providerErrors.find(e => e.provider === providerName)) {
-              providerErrors.push({ provider: providerName, error: err.message });
-            }
-          }
-        }));
-      } catch (err) {
-        console.error(`unified: failed to initialize provider ${providerName} for user ${userId}:`, err.message);
-        providerErrors.push({ provider: providerName, error: err.message });
-      }
-    }));
-
-    const rules    = await userService.getClassificationRules(userId) || classificationConfig;
+    const rules    = await userService.getClassificationRules(userId) || await getSystemDefault();
     const annotated = allTasks.map(t => ({ ...t, classification: classifyTask(t, rules) }));
     const result   = { user: req.user.username, tasks: annotated };
 
@@ -1185,6 +1195,43 @@ app.get('/api/tasks/unified', ...apiKeyAuthSub, async (req, res) => {
     // on this route and shares it with API-key callers, so the response
     // shape can't be changed here without breaking that client.
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Dry-run: classify the caller's *current* real tasks against a candidate
+// ruleset without saving it (see docs/triage-engine-implementation-plan.md,
+// Phase 2). Body: { rules }. Reuses fetchAllTasksForUser so this never
+// drifts from what /api/tasks/unified actually fetches, and returns the
+// same shape (tasks/total/hasMore) so the same client rendering code works
+// for "live" and "preview" results. Never persists — GET /auth/me/classification
+// afterward is unaffected regardless of what's previewed here.
+app.post('/auth/me/classification/preview', ...apiKeyAuth, async (req, res) => {
+  try {
+    const parsed = validateRules(req.body?.rules);
+    if (!parsed.success) {
+      return apiError(res, 'invalid_request', 'Invalid classification rules', {
+        issues: parsed.error.issues.map(i => ({ path: i.path.join('.'), message: i.message }))
+      });
+    }
+    const rules  = parsed.data;
+    const userId = req.user.userId;
+
+    const { allTasks, providerErrors } = await fetchAllTasksForUser(req, userId);
+    const annotated = allTasks.map(t => ({ ...t, classification: classifyTask(t, rules) }));
+
+    let responseTasks = annotated;
+    if (req.query.sort === 'classification') {
+      responseTasks = [...annotated].sort((a, b) =>
+        (CLASSIFICATION_ORDER[a.classification] ?? 3) - (CLASSIFICATION_ORDER[b.classification] ?? 3)
+      );
+    }
+    const { tasks: paged, total, hasMore } = applyListFilterAndPagination(responseTasks, req.query);
+
+    const response = { user: req.user.username, tasks: paged, total, hasMore };
+    if (providerErrors.length) response.providerErrors = providerErrors;
+    res.json(response);
+  } catch (error) {
+    apiError(res, 'internal_error', error.message);
   }
 });
 
@@ -1304,7 +1351,7 @@ app.get('/api/lists/:listId/tasks', ...apiKeyAuthSub, async (req, res) => {
 
     await initializeProvider(provider, providerName, req.user.userId);
     const tasks = await provider.getTasks(listId);
-    const rules = await userService.getClassificationRules(req.user.userId) || classificationConfig;
+    const rules = await userService.getClassificationRules(req.user.userId) || await getSystemDefault();
     const annotated = tasks.map(t => ({ ...t, classification: classifyTask(t, rules) }));
     const result = { provider: providerName, user: req.user.username, listId, tasks: annotated };
     cache.set(cacheKey, result, TTL.tasks);
@@ -1321,7 +1368,7 @@ app.get('/api/lists/:listId/tasks/:taskId', ...apiKeyAuthSub, async (req, res) =
     await initializeProvider(provider, providerName, req.user.userId);
 
     const task = await provider.getTask(listId, taskId);
-    const rules = await userService.getClassificationRules(req.user.userId) || classificationConfig;
+    const rules = await userService.getClassificationRules(req.user.userId) || await getSystemDefault();
     res.json({ provider: providerName, user: req.user.username, listId, task: { ...task, classification: classifyTask(task, rules) } });
   } catch (error) {
     res.status(500).json({ error: error.message });

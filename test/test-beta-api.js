@@ -149,6 +149,97 @@ async function testClassificationRules() {
   assert(rules.status === 200 && rules.data.rules, 'GET /auth/me/classification (sandbox key) returned 200', 'Rules GET failed', rules.data);
 }
 
+// Only the non-mutating checks — validation and structural exclusion — run
+// here. Unlike everything else in this file, PUT /admin/classification/defaults
+// changes a single GLOBAL row shared by every account on the server, not
+// per-key sandbox data; this file runs against production on every deploy
+// (see deploy.yml), and a brief mutate-then-restore round trip there would
+// mean real concurrent requests could momentarily observe the wrong
+// system-wide default. The successful-write path was verified manually
+// during implementation against a local server instead — see
+// docs/triage-engine-implementation-plan.md, Phase 0.
+async function testAdminDefaultsStructural() {
+  section('Admin: system-wide classification defaults (structural checks only)');
+
+  const candidate = { now: { overdue: true, priorities: ['high'] }, next: { future_due: true, priorities: ['normal'] }, later: {} };
+
+  const viaApiKey = await api('PUT', '/admin/classification/defaults', candidate, sandboxKey);
+  assert(viaApiKey.status === 401, 'Sandbox API key rejected on /admin/classification/defaults (JWT-only route)', 'API key was unexpectedly accepted on the admin route', viaApiKey.data);
+
+  const malformed = await api('PUT', '/admin/classification/defaults', { schemaVersion: 2, now: { field: 'priority', op: 'bogus' }, next: {}, later: {} }, jwt);
+  assert(malformed.status === 400 && malformed.data.error?.code === 'invalid_request',
+    'Malformed admin default rules rejected (400 invalid_request) rather than reaching the DB', 'Malformed rules were not rejected as expected', malformed.data);
+}
+
+async function testV2PredicateRules() {
+  section('schemaVersion:2 predicate-tree rules');
+
+  // High priority AND due within 3 days — an AND composition the legacy
+  // {overdue, priorities} shape cannot express at all.
+  const v2Rules = {
+    schemaVersion: 2,
+    now:   { all: [{ field: 'priority', op: 'eq', value: 'high' }, { field: 'dueDate', op: 'within_days', value: 3 }] },
+    next:  { field: 'dueDate', op: 'future_due' },
+    later: {}
+  };
+
+  const malformed = await api('PUT', '/auth/me/classification', { schemaVersion: 2, now: { field: 'priority', op: 'bogus' }, next: {}, later: {} }, sandboxKey);
+  assert(malformed.status === 400 && malformed.data.error?.code === 'invalid_request',
+    'PUT with a malformed predicate tree is rejected (400 invalid_request)', 'Malformed v2 rules were not rejected', malformed.data);
+
+  // A predicate node's own vocabulary (field/op) showing up in a bucket with
+  // no schemaVersion:2 — should be rejected, not silently accepted as a
+  // harmless-extra-fields legacy rule that then matches nothing at classify time.
+  const forgotVersion = await api('PUT', '/auth/me/classification', { now: { field: 'priority', op: 'eq', value: 'high' }, next: {}, later: {} }, sandboxKey);
+  assert(forgotVersion.status === 400 && forgotVersion.data.error?.code === 'invalid_request',
+    'A predicate-shaped bucket without schemaVersion:2 is rejected, not silently accepted as an inert legacy rule', 'Forgetting schemaVersion:2 on a predicate tree was silently accepted', forgotVersion.data);
+
+  const saved = await api('PUT', '/auth/me/classification', v2Rules, sandboxKey);
+  assert(saved.status === 200 && saved.data.rules?.schemaVersion === 2, 'Saved a schemaVersion:2 predicate-tree ruleset', 'Failed to save v2 rules', saved.data);
+
+  const triage = await api('GET', '/api/tasks/unified', null, sandboxKey);
+  const byName = Object.fromEntries((triage.data.tasks || []).map(t => [t.name, t]));
+  // Sandbox fixture: "Reply to client escalation" is high priority, overdue
+  // — matches (high AND within 3 days) → now.
+  assert(byName['Reply to client escalation']?.classification === 'now',
+    'v2 AND-composed rule correctly classifies an overdue high-priority sandbox task as now', 'v2 predicate classification mismatch', byName['Reply to client escalation']);
+  // "Prep Q3 roadmap doc" is normal priority — fails the (high AND ...) rule
+  // for "now" regardless of due date, falls through to future_due → next.
+  assert(byName['Prep Q3 roadmap doc']?.classification === 'next',
+    'v2 rule correctly falls through to next for a non-high-priority future task', 'v2 predicate fallthrough mismatch', byName['Prep Q3 roadmap doc']);
+
+  const reset = await api('DELETE', '/auth/me/classification', null, sandboxKey);
+  assert(reset.status === 200, 'Reset sandbox key\'s account back to default rules after the v2 test', 'Failed to reset classification rules', reset.data);
+}
+
+async function testClassificationPreview() {
+  section('POST /auth/me/classification/preview (dry-run)');
+
+  const before = await api('GET', '/auth/me/classification', null, sandboxKey);
+
+  const candidateRules = {
+    schemaVersion: 2,
+    now: { field: 'priority', op: 'includes', value: ['high', 'normal', 'low'] }, // matches every task
+    next: {}, later: {}
+  };
+  const preview = await api('POST', '/auth/me/classification/preview', { rules: candidateRules }, sandboxKey);
+  assert(preview.status === 200 && preview.data.tasks?.length > 0, 'Preview returned classified tasks', 'Preview request failed', preview.data);
+  // classification is null for completed tasks regardless of rules (the
+  // sandbox fixture has exactly one: "Approve expense report") — a
+  // "matches everything" ruleset still can't override that short-circuit.
+  const incomplete = preview.data.tasks.filter(t => t.classification !== null);
+  assert(incomplete.length > 0 && incomplete.every(t => t.classification === 'now'),
+    'Preview classified every incomplete task as now under the "matches everything" candidate ruleset', 'Preview did not apply the candidate ruleset correctly', preview.data.tasks);
+
+  const after = await api('GET', '/auth/me/classification', null, sandboxKey);
+  assert(JSON.stringify(after.data.rules) === JSON.stringify(before.data.rules) && after.data.isCustom === before.data.isCustom,
+    'Saved rules are unchanged after preview — preview never persists', 'Preview mutated saved rules', { before: before.data, after: after.data });
+
+  const malformedPreview = await api('POST', '/auth/me/classification/preview', { rules: { schemaVersion: 2, now: { field: 'x', op: 'bogus' }, next: {}, later: {} } }, sandboxKey);
+  assert(malformedPreview.status === 400 && malformedPreview.data.error?.code === 'invalid_request',
+    'Preview with a malformed ruleset is rejected (400 invalid_request)', 'Malformed preview rules were not rejected', malformedPreview.data);
+}
+
 async function testSandboxWritesAndReset() {
   section('Sandbox writes (mutable) + reset');
 
@@ -283,6 +374,9 @@ async function run() {
   if (ok) {
     await testSandboxTriage();
     await testClassificationRules();
+    await testAdminDefaultsStructural();
+    await testV2PredicateRules();
+    await testClassificationPreview();
     await testSandboxWritesAndReset();
     await testIdempotency();
     await testIdempotencyOnDelete();

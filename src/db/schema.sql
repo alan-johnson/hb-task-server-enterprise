@@ -87,3 +87,27 @@ CREATE TABLE IF NOT EXISTS api_usage_events (
     KEY idx_usage_user_created (user_id, created_at),
     KEY idx_usage_category (category, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Triage engine (see docs/triage-engine-implementation-plan.md, Phase 0 —
+-- V3__system_default_rules.sql, keep in sync)
+
+CREATE TABLE IF NOT EXISTS system_classification_defaults (
+    id          VARCHAR(36)  NOT NULL,
+    org_id      VARCHAR(255) DEFAULT NULL,
+    rules       JSON         NOT NULL,
+    updated_at  DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    updated_by  VARCHAR(255),
+    PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT IGNORE INTO system_classification_defaults (id, org_id, rules, updated_by)
+VALUES (
+    'global',
+    NULL,
+    JSON_OBJECT(
+        'now',   JSON_OBJECT('label', 'Now',   'overdue', true, 'priorities', JSON_ARRAY('high')),
+        'next',  JSON_OBJECT('label', 'Next',  'future_due', true, 'priorities', JSON_ARRAY('normal')),
+        'later', JSON_OBJECT('label', 'Later')
+    ),
+    NULL
+);

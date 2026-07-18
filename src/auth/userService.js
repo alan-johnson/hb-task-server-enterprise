@@ -356,6 +356,37 @@ class UserService {
     await cache.del(`classrules:${userId}`);
   }
 
+  // ---------- system-wide classification default (Phase 0) ----------
+  // Single global row (id='global') read as the fallback whenever a user has
+  // no custom rules of their own. Replaces the boot-time TOML file — no
+  // restart needed to change it. Cached through the same shared Redis client
+  // as per-user rules, not the in-memory SimpleCache in task-server.js,
+  // which would silently desync if this app is ever run as more than one
+  // process (see docs/triage-engine-implementation-plan.md §1.5).
+
+  async getSystemDefaultRules() {
+    const cacheKey = 'classrules:system:global';
+    const cached = await cache.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+
+    const result = await pool.query(
+      "SELECT rules FROM system_classification_defaults WHERE id = 'global'",
+    );
+    const rules = result.rows[0]?.rules || null;
+    if (rules) await cache.set(cacheKey, JSON.stringify(rules));
+    return rules;
+  }
+
+  async updateSystemDefaultRules(rules, adminUserId) {
+    await pool.query(
+      `INSERT INTO system_classification_defaults (id, org_id, rules, updated_by)
+       VALUES ('global', NULL, ?, ?)
+       ON DUPLICATE KEY UPDATE rules = VALUES(rules), updated_by = VALUES(updated_by)`,
+      [JSON.stringify(rules), adminUserId]
+    );
+    await cache.del('classrules:system:global');
+  }
+
   async updatePreferences(userId, { showCompleted }) {
     const result = await pool.query(
       'UPDATE users SET show_completed = ? WHERE user_id = ?',
