@@ -8,7 +8,11 @@
   --hb-muted: #a5afc7;
   --hb-accent: #2fd0ff;
   --hb-accent-2: #7b5cff;
+  --hb-accent-soft: #1aa3d6;
+  --hb-danger: #ff4b6a;
+  --hb-radius: 10px;
   --hb-shadow: 0 18px 40px rgba(0, 0, 0, .35);
+  --hb-font: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
 }
 
 html { scroll-behavior: smooth; }
@@ -19,7 +23,7 @@ body {
   flex-direction: column;
   background: radial-gradient(circle at top, #101b3a 0, var(--hb-bg) 55%) !important;
   color: var(--hb-text) !important;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif !important;
+  font-family: var(--hb-font) !important;
 }
 
 body > header {

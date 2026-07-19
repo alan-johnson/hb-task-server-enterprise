@@ -1,10 +1,8 @@
 /* UpQ app-shell components — dark reskin to sit alongside site-theme.css.
    Draft only: targets classes defined in style.css that site-theme.css
-   doesn't reach (auth forms, dashboard, lists, tasks, modals, banners). */
-:root {
-  --hb-danger: #ff4b6a;
-  --hb-radius: 10px;
-}
+   doesn't reach (auth forms, dashboard, lists, tasks, modals, banners).
+   --hb-danger and --hb-radius now live in site-theme.css, which this file
+   always loads after. */
 
 /* ── Header inset ──
    site-theme.css already declares `body > header { width: min(1040px, calc(100% - 48px)); margin: 0 auto; }`
