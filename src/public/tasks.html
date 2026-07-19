@@ -448,6 +448,42 @@
     (function initDragAndDrop() {
       const container = document.getElementById('tasks-container');
 
+      // Auto-scroll the page while dragging near the top/bottom of the
+      // viewport — otherwise a bucket that's currently scrolled out of view
+      // (e.g. dragging into "Later" while "Now" fills the screen) has no way
+      // to be reached. The page itself scrolls (no inner scroll container on
+      // this layout), so this scrolls window, not #tasks-container.
+      const AUTO_SCROLL_EDGE = 72;       // px from viewport top/bottom that triggers scrolling
+      const AUTO_SCROLL_MAX_SPEED = 18;  // px per animation frame at the very edge
+      let autoScrollSpeed = 0;
+      let autoScrollRAF = null;
+
+      function autoScrollTick() {
+        if (autoScrollSpeed !== 0) {
+          window.scrollBy(0, autoScrollSpeed);
+          autoScrollRAF = requestAnimationFrame(autoScrollTick);
+        } else {
+          autoScrollRAF = null;
+        }
+      }
+
+      function updateAutoScroll(clientY) {
+        const vh = window.innerHeight;
+        let speed = 0;
+        if (clientY < AUTO_SCROLL_EDGE) {
+          speed = -AUTO_SCROLL_MAX_SPEED * (1 - clientY / AUTO_SCROLL_EDGE);
+        } else if (clientY > vh - AUTO_SCROLL_EDGE) {
+          speed = AUTO_SCROLL_MAX_SPEED * (1 - (vh - clientY) / AUTO_SCROLL_EDGE);
+        }
+        autoScrollSpeed = speed;
+        if (speed !== 0 && !autoScrollRAF) autoScrollRAF = requestAnimationFrame(autoScrollTick);
+      }
+
+      function stopAutoScroll() {
+        autoScrollSpeed = 0;
+        if (autoScrollRAF) { cancelAnimationFrame(autoScrollRAF); autoScrollRAF = null; }
+      }
+
       container.addEventListener('dragstart', e => {
         const card = e.target.closest('.task-card');
         if (!card) return;
@@ -459,7 +495,13 @@
       container.addEventListener('dragend', e => {
         const card = e.target.closest('.task-card');
         if (card) card.classList.remove('dragging');
+        stopAutoScroll();
       });
+
+      // Document-level (not container-scoped) so auto-scroll still kicks in
+      // near the very top of the viewport, even over the header above
+      // #tasks-container.
+      document.addEventListener('dragover', e => updateAutoScroll(e.clientY));
 
       container.addEventListener('dragover', e => {
         const group = e.target.closest('.tasks-group');
@@ -479,6 +521,7 @@
         if (!group) return;
         e.preventDefault();
         group.classList.remove('tasks-group-dragover');
+        stopAutoScroll();
         const taskId = e.dataTransfer.getData('text/plain');
         if (taskId) moveTaskBucket(taskId, group.dataset.bucket);
       });
