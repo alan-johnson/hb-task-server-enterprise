@@ -298,7 +298,14 @@ async function testExportValidateImport() {
   const exported = await api('GET', '/auth/me/classification/export', null, sandboxKey);
   assert(exported.status === 200 && typeof exported.data.$schema === 'string' && exported.data.$schema.endsWith('/schemas/classification-rules.schema.json'),
     'Export includes a $schema pointer to the served JSON Schema file', 'Export missing/incorrect $schema field', exported.data);
-  assert(exported.data.schemaVersion === 2 && JSON.stringify(exported.data.now) === JSON.stringify(knownRules.now),
+  // Field-by-field, not JSON.stringify(...) === JSON.stringify(...) — the
+  // exported value round-trips through PUT -> DB -> parse -> GET and can
+  // come back with the same fields in a different key order than this
+  // hand-written literal, which a string comparison would wrongly fail.
+  assert(exported.data.schemaVersion === 2 &&
+    exported.data.now?.field === knownRules.now.field &&
+    exported.data.now?.op    === knownRules.now.op &&
+    exported.data.now?.value === knownRules.now.value,
     'Export reflects the just-saved custom rules', 'Export did not return the expected rules shape', exported.data);
   assert(exported.headers?.['content-disposition']?.includes('classification-rules.json'),
     'Export sets a Content-Disposition filename for browser downloads', 'Export missing Content-Disposition header', exported.headers);
