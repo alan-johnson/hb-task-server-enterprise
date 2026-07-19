@@ -222,14 +222,16 @@ body.legal-page .highlight a {
 .task-name-done { color: #565f78 !important; }
 .task-due, .task-notes { color: var(--hb-muted) !important; }
 .task-expand-icon { color: var(--hb-muted) !important; }
-/* Same hover border treatment as .list-card, applied to every task card
-   (not just expandable ones) — but only the top/right/bottom edges, so the
-   Now/Next/Later left-edge priority stripe (border-left-color, set below)
-   stays visible instead of being overridden by the hover cyan. */
-.task-card:hover {
-  border-top-color: rgba(47, 208, 255, .48) !important;
-  border-right-color: rgba(47, 208, 255, .48) !important;
-  border-bottom-color: rgba(47, 208, 255, .48) !important;
+/* Hover border: top/right/bottom switch to the solid brand accent; the
+   left edge is deliberately left untouched here so the Now/Next/Later
+   priority stripe (border-left-color, set below) keeps its own color. */
+.task-card:hover,
+.task-card-now:hover,
+.task-card-next:hover,
+.task-card-later:hover {
+  border-top-color: var(--hb-accent) !important;
+  border-right-color: var(--hb-accent) !important;
+  border-bottom-color: var(--hb-accent) !important;
 }
 .task-card-expandable:hover { box-shadow: 0 8px 24px rgba(0,0,0,.3) !important; }
 .task-body-expandable:hover .task-name { color: var(--hb-accent) !important; }
