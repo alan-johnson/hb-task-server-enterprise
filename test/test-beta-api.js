@@ -70,7 +70,7 @@ function request(method, urlStr, body, authToken, extraHeaders) {
       res.on('data', chunk => { buf += chunk; });
       res.on('end', () => {
         try {
-          resolve({ status: res.statusCode, data: buf ? JSON.parse(buf) : {} });
+          resolve({ status: res.statusCode, data: buf ? JSON.parse(buf) : {}, headers: res.headers });
         } catch (e) {
           reject(new Error(`Non-JSON response (${res.statusCode}): ${buf.slice(0, 200)}`));
         }
@@ -283,6 +283,63 @@ async function testPresets() {
   assert(reset.status === 200, 'Reset sandbox key\'s account back to default rules after the presets test', 'Failed to reset classification rules', reset.data);
 }
 
+async function testExportValidateImport() {
+  section('GET .../export, POST .../validate — JSON predicate-tree edit/import workflow');
+
+  // Set a known v2 ruleset first so this test's assertions are about the
+  // export/validate/import mechanics, not about whichever shape the system
+  // default happens to be at the moment this runs — deploy.yml runs this
+  // whole suite as its smoke-test *before* migrate-db applies V4, so the
+  // system default itself may still be legacy-shaped at that point.
+  const knownRules = { schemaVersion: 2, now: { field: 'priority', op: 'eq', value: 'high' }, next: { field: 'dueDate', op: 'future_due' }, later: {} };
+  const seeded = await api('PUT', '/auth/me/classification', knownRules, sandboxKey);
+  assert(seeded.status === 200, 'Seeded a known v2 ruleset before exporting', 'Failed to seed known rules', seeded.data);
+
+  const exported = await api('GET', '/auth/me/classification/export', null, sandboxKey);
+  assert(exported.status === 200 && typeof exported.data.$schema === 'string' && exported.data.$schema.endsWith('/schemas/classification-rules.schema.json'),
+    'Export includes a $schema pointer to the served JSON Schema file', 'Export missing/incorrect $schema field', exported.data);
+  assert(exported.data.schemaVersion === 2 && JSON.stringify(exported.data.now) === JSON.stringify(knownRules.now),
+    'Export reflects the just-saved custom rules', 'Export did not return the expected rules shape', exported.data);
+  assert(exported.headers?.['content-disposition']?.includes('classification-rules.json'),
+    'Export sets a Content-Disposition filename for browser downloads', 'Export missing Content-Disposition header', exported.headers);
+
+  // The exported file (including its $schema field) should validate cleanly
+  // when pasted back in unmodified — this is the round-trip the whole
+  // export -> edit -> validate -> import workflow depends on.
+  const validExported = await api('POST', '/auth/me/classification/validate', exported.data, sandboxKey);
+  assert(validExported.status === 200 && validExported.data.valid === true,
+    'The exported file (with its $schema field still present) validates as-is', 'Exported file did not validate unmodified', validExported.data);
+
+  // A hand-edited, well-formed v2 ruleset should also validate without
+  // being saved.
+  const goodCandidate = { $schema: 'ignored', schemaVersion: 2, now: { field: 'priority', op: 'eq', value: 'high' }, next: {}, later: {} };
+  const validGood = await api('POST', '/auth/me/classification/validate', goodCandidate, sandboxKey);
+  assert(validGood.status === 200 && validGood.data.valid === true && validGood.data.rules?.schemaVersion === 2,
+    'A well-formed hand-edited v2 ruleset validates and echoes back the parsed rules', 'Valid candidate rules were rejected', validGood.data);
+
+  // A malformed one should come back invalid, with issue detail, but still
+  // a 200 (the validate request itself succeeded; the rules didn't) — and
+  // must not have been saved.
+  const before = await api('GET', '/auth/me/classification', null, sandboxKey);
+  const badCandidate = { schemaVersion: 2, now: { field: 'priority', op: 'not-a-real-op' }, next: {}, later: {} };
+  const validBad = await api('POST', '/auth/me/classification/validate', badCandidate, sandboxKey);
+  assert(validBad.status === 200 && validBad.data.valid === false && Array.isArray(validBad.data.errors) && validBad.data.errors.length > 0,
+    'A malformed ruleset validates as invalid with a non-empty errors array (still HTTP 200)', 'Malformed ruleset did not report as invalid correctly', validBad.data);
+  const after = await api('GET', '/auth/me/classification', null, sandboxKey);
+  assert(JSON.stringify(after.data.rules) === JSON.stringify(before.data.rules) && after.data.isCustom === before.data.isCustom,
+    'Validate never saves, valid or not', 'Validate mutated saved rules', { before: before.data, after: after.data });
+
+  // Full round-trip: export -> (pretend to edit) -> PUT the file back
+  // unmodified, $schema and all — should succeed exactly like PUTting the
+  // rules without $schema would.
+  const imported = await api('PUT', '/auth/me/classification', exported.data, sandboxKey);
+  assert(imported.status === 200 && imported.data.rules?.schemaVersion === 2,
+    'PUT accepts the exported file unmodified (including its $schema field) as an import', 'Re-importing the exported file failed', imported.data);
+
+  const reset = await api('DELETE', '/auth/me/classification', null, sandboxKey);
+  assert(reset.status === 200, 'Reset sandbox key\'s account back to default rules after the export/validate test', 'Failed to reset classification rules', reset.data);
+}
+
 async function testSandboxWritesAndReset() {
   section('Sandbox writes (mutable) + reset');
 
@@ -421,6 +478,7 @@ async function run() {
     await testV2PredicateRules();
     await testClassificationPreview();
     await testPresets();
+    await testExportValidateImport();
     await testSandboxWritesAndReset();
     await testIdempotency();
     await testIdempotencyOnDelete();

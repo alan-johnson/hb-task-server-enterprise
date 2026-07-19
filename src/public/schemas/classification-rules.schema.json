@@ -1,0 +1,117 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tasks.handsbreadth.com/schemas/classification-rules.schema.json",
+  "title": "UpQ Classification Rules",
+  "description": "Rules used to classify a task into Now/Next/Later. Mirrors src/classification/rulesSchema.js exactly — if this drifts from that file, one of the two has a bug. Two shapes are accepted: the legacy two-boolean shape (no schemaVersion, or schemaVersion:1), and the schemaVersion:2 predicate tree. GET /auth/me/classification/export attaches $schema automatically; PUT /auth/me/classification and POST /auth/me/classification/validate both strip it before validating, so re-importing the exported file as-is works without editing it out.",
+  "oneOf": [
+    { "$ref": "#/definitions/legacyRules" },
+    { "$ref": "#/definitions/v2Rules" }
+  ],
+  "definitions": {
+    "legacyBucket": {
+      "type": "object",
+      "description": "label is display-only. now uses overdue/priorities; next uses future_due/priorities; later conventionally has just a label.",
+      "properties": {
+        "label": { "type": "string" },
+        "overdue": { "type": "boolean" },
+        "future_due": { "type": "boolean" },
+        "priorities": {
+          "type": "array",
+          "items": { "type": "string", "examples": ["high", "normal", "low"] }
+        }
+      },
+      "not": {
+        "description": "Mirrors rulesSchema.js's RESERVED_V2_KEYS refine() check — a predicate node (field/op/all/any/not) here almost always means schemaVersion:2 was forgotten at the top level, not a genuinely legacy bucket with odd extra fields.",
+        "anyOf": [
+          { "required": ["field"] },
+          { "required": ["op"] },
+          { "required": ["all"] },
+          { "required": ["any"] },
+          { "required": ["not"] }
+        ]
+      }
+    },
+    "legacyRules": {
+      "type": "object",
+      "properties": {
+        "$schema": { "type": "string" },
+        "schemaVersion": { "const": 1 },
+        "now": { "$ref": "#/definitions/legacyBucket" },
+        "next": { "$ref": "#/definitions/legacyBucket" },
+        "later": { "$ref": "#/definitions/legacyBucket" }
+      },
+      "required": ["now", "next", "later"]
+    },
+    "leafPredicate": {
+      "type": "object",
+      "description": "A single condition. `value` is required for eq/includes/gt/lt/within_days and unused for overdue/future_due.",
+      "properties": {
+        "field": {
+          "type": "string",
+          "examples": ["dueDate", "priority", "tags", "listId", "ageDays"]
+        },
+        "op": {
+          "type": "string",
+          "enum": ["eq", "includes", "gt", "lt", "overdue", "future_due", "within_days"]
+        },
+        "value": {}
+      },
+      "required": ["field", "op"],
+      "additionalProperties": false
+    },
+    "allNode": {
+      "type": "object",
+      "description": "AND — every predicate in the list must match.",
+      "properties": {
+        "all": { "type": "array", "items": { "$ref": "#/definitions/predicate" } }
+      },
+      "required": ["all"],
+      "additionalProperties": false
+    },
+    "anyNode": {
+      "type": "object",
+      "description": "OR — at least one predicate in the list must match.",
+      "properties": {
+        "any": { "type": "array", "items": { "$ref": "#/definitions/predicate" } }
+      },
+      "required": ["any"],
+      "additionalProperties": false
+    },
+    "notNode": {
+      "type": "object",
+      "description": "Negation of a single predicate.",
+      "properties": {
+        "not": { "$ref": "#/definitions/predicate" }
+      },
+      "required": ["not"],
+      "additionalProperties": false
+    },
+    "emptyPredicate": {
+      "type": "object",
+      "description": "Deliberately matches nothing — the conventional catch-all for `later`, which is never itself evaluated as a predicate (later = whatever falls through now/next).",
+      "additionalProperties": false,
+      "maxProperties": 0
+    },
+    "predicate": {
+      "oneOf": [
+        { "$ref": "#/definitions/leafPredicate" },
+        { "$ref": "#/definitions/allNode" },
+        { "$ref": "#/definitions/anyNode" },
+        { "$ref": "#/definitions/notNode" },
+        { "$ref": "#/definitions/emptyPredicate" }
+      ]
+    },
+    "v2Rules": {
+      "type": "object",
+      "properties": {
+        "$schema": { "type": "string" },
+        "schemaVersion": { "const": 2 },
+        "now": { "$ref": "#/definitions/predicate" },
+        "next": { "$ref": "#/definitions/predicate" },
+        "later": { "$ref": "#/definitions/predicate" }
+      },
+      "required": ["schemaVersion", "now", "next"],
+      "additionalProperties": false
+    }
+  }
+}

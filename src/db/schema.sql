@@ -88,8 +88,13 @@ CREATE TABLE IF NOT EXISTS api_usage_events (
     KEY idx_usage_category (category, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Triage engine (see docs/triage-engine-implementation-plan.md, Phase 0 —
--- V3__system_default_rules.sql, keep in sync)
+-- Triage engine (see docs/triage-engine-implementation-plan.md, Phase 0/1 —
+-- V3__system_default_rules.sql + V4__system_default_to_predicate_tree.sql,
+-- keep in sync). The seed below reflects the post-V4 state (schemaVersion:2
+-- predicate tree) so a fresh install from this file matches an environment
+-- that ran both migrations in order — behaviorally identical to the
+-- original legacy-shape default: overdue-or-high-priority => now;
+-- future-due-or-normal-priority => next; everything else => later.
 
 CREATE TABLE IF NOT EXISTS system_classification_defaults (
     id          VARCHAR(36)  NOT NULL,
@@ -105,9 +110,16 @@ VALUES (
     'global',
     NULL,
     JSON_OBJECT(
-        'now',   JSON_OBJECT('label', 'Now',   'overdue', true, 'priorities', JSON_ARRAY('high')),
-        'next',  JSON_OBJECT('label', 'Next',  'future_due', true, 'priorities', JSON_ARRAY('normal')),
-        'later', JSON_OBJECT('label', 'Later')
+        'schemaVersion', 2,
+        'now', JSON_OBJECT('any', JSON_ARRAY(
+                   JSON_OBJECT('field', 'dueDate', 'op', 'overdue'),
+                   JSON_OBJECT('field', 'priority', 'op', 'eq', 'value', 'high')
+               )),
+        'next', JSON_OBJECT('any', JSON_ARRAY(
+                   JSON_OBJECT('field', 'dueDate', 'op', 'future_due'),
+                   JSON_OBJECT('field', 'priority', 'op', 'eq', 'value', 'normal')
+               )),
+        'later', JSON_OBJECT()
     ),
-    NULL
+    'migration:V4'
 );

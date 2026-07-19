@@ -71,6 +71,16 @@ const { usageLogger } = require('./analytics/usageLogger');
 // Phase 0. The boot-time TOML file this used to be loaded from
 // (config/classification.toml) is no longer read here — changing the
 // system-wide default no longer requires a file edit + restart.
+//
+// Deliberately kept in the legacy two-boolean shape even though the
+// DB-backed system default (system_classification_defaults, 'global' row)
+// was promoted to a schemaVersion:2 predicate tree in
+// V4__system_default_to_predicate_tree.sql (Phase 1 is shipped, see the
+// implementation plan) — this fallback only fires when the DB itself is
+// unreachable, so it should stay the simplest possible dependency-free
+// rule, not require the predicate engine to also be working correctly at
+// the exact moment the DB has failed. Behaviorally identical to the
+// pre-V4 default either way.
 const DEFAULT_CLASSIFICATION = {
   now:   { label: 'Now',   overdue: true, priorities: ['high'] },
   next:  { label: 'Next',  future_due: true, priorities: ['normal'] },
@@ -983,9 +993,13 @@ app.get('/auth/me/classification', ...apiKeyAuth, async (req, res) => {
 // schemaVersion, or 1) or a schemaVersion:2 predicate tree (see
 // src/classification/rulesSchema.js) — validated before saving so a
 // malformed tree is rejected here, not discovered later at classify time.
+// Strips a top-level $schema key first (harmless if absent) so the file
+// GET /auth/me/classification/export produces can be edited and pasted
+// back in here unmodified — see that route below.
 app.put('/auth/me/classification', ...apiKeyAuth, async (req, res) => {
   try {
-    const parsed = validateRules(req.body);
+    const { $schema, ...body } = req.body || {};
+    const parsed = validateRules(body);
     if (!parsed.success) {
       return apiError(res, 'invalid_request', 'Invalid classification rules', {
         issues: parsed.error.issues.map(i => ({ path: i.path.join('.'), message: i.message }))
@@ -1067,6 +1081,46 @@ app.post('/auth/me/classification/parse', ...apiKeyAuth, async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// Export this user's effective rules (their custom rules, or the system
+// default if they haven't set any) as a downloadable JSON file with a
+// $schema pointer at schemas/classification-rules.schema.json (served
+// statically — see src/public/schemas/). Opening the downloaded file in an
+// editor with JSON Schema support (e.g. VS Code) gets autocomplete and
+// inline validation for the predicate-tree grammar for free, no editor
+// config needed beyond the $schema field already being in the file. Edit
+// it, optionally check it with POST .../validate, then paste it back into
+// PUT /auth/me/classification to import — both routes strip the $schema
+// field themselves, so the exported file works unmodified.
+app.get('/auth/me/classification/export', ...apiKeyAuth, async (req, res) => {
+  try {
+    const rules = await userService.getClassificationRules(req.user.userId) || await getSystemDefault();
+    const schemaUrl = `${req.protocol}://${req.get('host')}/schemas/classification-rules.schema.json`;
+    res.setHeader('Content-Disposition', 'attachment; filename="classification-rules.json"');
+    res.json({ ...rules, $schema: schemaUrl });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Validate a rules payload against the same schema PUT uses, without
+// saving it — the "check before you commit" step for the JSON
+// export/edit/import workflow above (mirrors what POST .../parse already
+// does for the TOML/legacy workflow). Always 200 — `valid` carries the
+// real result, since a request that was itself well-formed but describes
+// invalid rules isn't a request failure. Strips a top-level $schema key
+// first so the exported file can be checked unmodified.
+app.post('/auth/me/classification/validate', ...apiKeyAuth, (req, res) => {
+  const { $schema, ...body } = req.body || {};
+  const parsed = validateRules(body);
+  if (!parsed.success) {
+    return res.json({
+      valid: false,
+      errors: parsed.error.issues.map(i => ({ path: i.path.join('.'), message: i.message }))
+    });
+  }
+  res.json({ valid: true, rules: parsed.data });
 });
 
 // ============================================
@@ -1226,7 +1280,8 @@ app.get('/api/tasks/unified', ...apiKeyAuthSub, async (req, res) => {
 // afterward is unaffected regardless of what's previewed here.
 app.post('/auth/me/classification/preview', ...apiKeyAuth, async (req, res) => {
   try {
-    const parsed = validateRules(req.body?.rules);
+    const { $schema, ...candidateRules } = req.body?.rules || {};
+    const parsed = validateRules(candidateRules);
     if (!parsed.success) {
       return apiError(res, 'invalid_request', 'Invalid classification rules', {
         issues: parsed.error.issues.map(i => ({ path: i.path.join('.'), message: i.message }))
