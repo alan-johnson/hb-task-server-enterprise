@@ -30,6 +30,61 @@ www.tasks.handsbreadth.com {
     redir https://tasks.handsbreadth.com{uri} permanent
 }
 
+# ── getupq.com (vanity marketing domain) ─────────────────────────────────────
+# Plain redirect to the real app host. Deliberately NOT a mirror: OAuth
+# (Google/Microsoft) redirect URIs and session cookies are only valid for
+# tasks.handsbreadth.com, so keeping this a redirect avoids re-registering
+# OAuth apps or dealing with cross-domain cookie scoping.
+getupq.com, www.getupq.com {
+    redir https://tasks.handsbreadth.com{uri} permanent
+}
+
+# ── getupq.dev (developer-facing API/MCP vanity domain) ──────────────────────
+# Reverse-proxies /api/* and /mcp straight to the same app process as
+# tasks.handsbreadth.com — NOT a redirect, since /mcp is a POST endpoint and
+# most HTTP/MCP clients won't re-POST after a 301/302. Everything else
+# (the web UI, login, session-cookie routes) isn't served here; it falls
+# back to a redirect since this host only exists for API-key-authenticated
+# programmatic access.
+getupq.dev {
+    encode gzip zstd
+
+    handle /api/* {
+        reverse_proxy localhost:3500 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle /mcp {
+        reverse_proxy localhost:3500 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle {
+        redir https://tasks.handsbreadth.com{uri} permanent
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    log {
+        output file /var/log/caddy/getupq-dev.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+    }
+}
+
+www.getupq.dev {
+    redir https://getupq.dev{uri} permanent
+}
+
 # ── handsbreadth.com (main business site) ────────────────────────────────────
 # Static files + PHP-FPM for the email contact form (PHPMailer over SMTP).
 # Files live at /var/www/handsbreadth/ (git pull from the site repo to deploy).
