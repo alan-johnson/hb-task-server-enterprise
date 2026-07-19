@@ -123,3 +123,50 @@ VALUES (
     ),
     'migration:V4'
 );
+
+-- Triage feedback signal log (see docs/triage-engine-implementation-plan.md,
+-- Phase 4 §6, subsection 4a — signal collection only; see V5__triage_feedback.sql).
+-- Append-only. Only bucket_override is written today (drag-and-drop bucket moves).
+
+CREATE TABLE IF NOT EXISTS triage_feedback_events (
+    id          BIGINT AUTO_INCREMENT NOT NULL,
+    user_id     VARCHAR(255) NOT NULL,
+    task_id     VARCHAR(255) NOT NULL,
+    signal_type VARCHAR(30)  NOT NULL,  -- explicit_correction | bucket_override | snooze | completion_timing
+    predicted   VARCHAR(20),
+    observed    VARCHAR(20),
+    created_at  DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    KEY idx_feedback_user_created (user_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Live manual bucket-override state for drag-and-drop task moves (see
+-- V6__task_bucket_overrides.sql). Distinct from triage_feedback_events above:
+-- this is the queryable "what bucket is this task pinned to right now" table
+-- that annotateClassification() reads from; the feedback table is an
+-- append-only log. Cleared (see src/classification/overrideService.js) when
+-- due_date_snapshot/priority_snapshot no longer match the task's live values.
+--
+-- Surrogate `id` PRIMARY KEY, natural key as a UNIQUE KEY instead: a
+-- composite PRIMARY KEY of user_id(255)+provider(50)+list_id(255)+task_id(255)
+-- is 815 chars * 4 bytes (utf8mb4) = 3260 bytes, over InnoDB's 3072-byte
+-- index limit (ER_TOO_LONG_KEY, hit against a real MySQL 8 instance) —
+-- list_id/task_id are also capped at 200 chars to bring the composite under
+-- the limit, well above real Microsoft Graph / Google Tasks / Apple bridge /
+-- sandbox provider ID lengths.
+
+CREATE TABLE IF NOT EXISTS task_bucket_overrides (
+    id                 BIGINT AUTO_INCREMENT NOT NULL,
+    user_id            VARCHAR(255) NOT NULL,
+    provider           VARCHAR(50)  NOT NULL,
+    list_id            VARCHAR(200) NOT NULL,
+    task_id            VARCHAR(200) NOT NULL,
+    bucket             VARCHAR(20)  NOT NULL,  -- now | next | later
+    due_date_snapshot  VARCHAR(64),
+    priority_snapshot  VARCHAR(20),
+    created_at         DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at         DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY idx_tbo_lookup (user_id, provider, list_id, task_id),
+    CONSTRAINT fk_tbo_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

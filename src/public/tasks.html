@@ -12,6 +12,13 @@
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="site-theme.css">
   <link rel="stylesheet" href="upq-app-components.css">
+  <style>
+    .task-card[draggable="true"] { cursor: grab; }
+    .task-card.dragging { opacity: .4; }
+    .tasks-group { border-radius: 8px; transition: background .12s, box-shadow .12s; }
+    .tasks-group:empty { min-height: 12px; }
+    .tasks-group-dragover { background: rgba(47, 208, 255, .07); box-shadow: inset 0 0 0 2px var(--hb-accent, #2fd0ff); }
+  </style>
 </head>
 <body class="dashboard">
   <header class="site-header">
@@ -324,11 +331,16 @@
       if (showingAll && filtered.length) {
         const groups = { now: [], next: [], later: [] };
         for (const t of filtered) groups[t.classification || 'later'].push(t);
+        // Every bucket (even an empty one) is a drop target so a task can be
+        // dragged into a currently-empty bucket, not just a non-empty one.
         for (const key of ['now', 'next', 'later']) {
-          if (!groups[key].length) continue;
           const label = bucketLabel(key);
-          html += `<div class="tasks-section-label tag-section-${bucketCss(key)}">${label} (${groups[key].length})</div>`;
-          html += groups[key].map(t => taskCard(t)).join('');
+          html += `<div class="tasks-group" data-bucket="${key}">`;
+          if (groups[key].length) {
+            html += `<div class="tasks-section-label tag-section-${bucketCss(key)}">${label} (${groups[key].length})</div>`;
+            html += groups[key].map(t => taskCard(t)).join('');
+          }
+          html += `</div>`;
         }
       } else {
         html += filtered.map(t => taskCard(t)).join('');
@@ -359,7 +371,7 @@
         : `<button class="task-check task-check-btn" title="Mark complete" onclick="completeTask('${escHtml(task.id)}')">○</button>`;
 
       return `
-        <div class="task-card${done ? ' task-card-done' : ''}${tag ? ` task-card-${bucketCss(tag)}` : ''}" data-task-id="${escHtml(task.id)}">
+        <div class="task-card${done ? ' task-card-done' : ''}${tag ? ` task-card-${bucketCss(tag)}` : ''}" data-task-id="${escHtml(task.id)}"${done ? '' : ' draggable="true"'}>
           ${completeBtn}
           <div class="task-body${hasDetails ? ' task-body-expandable' : ''}"
                ${hasDetails ? `onclick="toggleExpand(this)"` : ''}>
@@ -400,6 +412,77 @@
         if (btn) { btn.disabled = false; btn.textContent = '○'; }
       }
     }
+
+    // ── Drag-and-drop bucket moves ──────────────────────────────
+    // provider/listId are page-level constants (this page is scoped to one
+    // list), unlike all-tasks.html where each task can belong to a different
+    // list — see the top of this script for their definitions.
+
+    function apiErrorMessage(e, fallback) {
+      return (e && e.error && (e.error.message || e.error)) || fallback;
+    }
+
+    async function moveTaskBucket(taskId, bucket) {
+      const task = taskById(taskId);
+      if (!task || task.classification === bucket) return;
+
+      const previous = task.classification;
+      task.classification = bucket;
+      task.classificationOverridden = true;
+      renderTasks(showCompleted ? tasksData : tasksData.filter(t => !t.completed));
+
+      try {
+        const res = await fetch(
+          `/api/lists/${encodeURIComponent(listId)}/tasks/${encodeURIComponent(taskId)}/bucket?provider=${encodeURIComponent(provider)}`,
+          { method: 'PATCH', headers: authHeaders(), body: JSON.stringify({ bucket }) }
+        );
+        if (!res.ok) { const e = await res.json(); throw new Error(apiErrorMessage(e, 'Failed to move task')); }
+      } catch (err) {
+        task.classification = previous;
+        delete task.classificationOverridden;
+        renderTasks(showCompleted ? tasksData : tasksData.filter(t => !t.completed));
+        showBanner(err.message, 'error');
+      }
+    }
+
+    (function initDragAndDrop() {
+      const container = document.getElementById('tasks-container');
+
+      container.addEventListener('dragstart', e => {
+        const card = e.target.closest('.task-card');
+        if (!card) return;
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', card.dataset.taskId);
+      });
+
+      container.addEventListener('dragend', e => {
+        const card = e.target.closest('.task-card');
+        if (card) card.classList.remove('dragging');
+      });
+
+      container.addEventListener('dragover', e => {
+        const group = e.target.closest('.tasks-group');
+        if (!group) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        group.classList.add('tasks-group-dragover');
+      });
+
+      container.addEventListener('dragleave', e => {
+        const group = e.target.closest('.tasks-group');
+        if (group && !group.contains(e.relatedTarget)) group.classList.remove('tasks-group-dragover');
+      });
+
+      container.addEventListener('drop', e => {
+        const group = e.target.closest('.tasks-group');
+        if (!group) return;
+        e.preventDefault();
+        group.classList.remove('tasks-group-dragover');
+        const taskId = e.dataTransfer.getData('text/plain');
+        if (taskId) moveTaskBucket(taskId, group.dataset.bucket);
+      });
+    })();
 
     // ── Create / Edit modal ────────────────────────────────────
 

@@ -48,6 +48,8 @@ const { idempotencyMiddleware } = require('./idempotency');
 const { classifyTaskWithReason } = require('./classification/classify');
 const { validateRules } = require('./classification/rulesSchema');
 const { listPresets } = require('./classification/presets');
+const overrideService = require('./classification/overrideService');
+const { logTriageFeedback } = require('./classification/feedbackService');
 
 const stripe = process.env.STRIPE_SECRET_KEY
   ? require('stripe')(process.env.STRIPE_SECRET_KEY)
@@ -1133,7 +1135,31 @@ const CLASSIFICATION_ORDER = { now: 0, next: 1, later: 2 };
 // (see docs/triage-engine-implementation-plan.md, Phase 2 — explainability).
 // Additive to the plain `classification` field every existing client already
 // reads; classificationReason is new and safe to ignore.
-function annotateClassification(task, rules) {
+//
+// `overrides` (optional) is the Map returned by overrideService.getOverridesForUser.
+// `providerName`/`listId` are passed explicitly rather than read off `task` — raw
+// tasks from provider.getTask()/getTasks() don't carry those fields themselves;
+// only the aggregated allTasks array built by fetchAllTasksForUser does.
+//
+// A manual drag-and-drop bucket move takes precedence over rule-based
+// classification until the task's dueDate/priority changes, at which point the
+// override is stale and self-clears (fire-and-forget) rather than silently
+// keeping a task pinned to a bucket that no longer reflects its real state.
+function annotateClassification(task, rules, overrides, userId, providerName, listId) {
+  const effectiveProvider = providerName ?? task.provider;
+  const effectiveListId   = listId ?? task.listId;
+  if (overrides && !task.completed) {
+    const override = overrides.get(`${effectiveProvider}:${effectiveListId}:${task.id}`);
+    if (override) {
+      const stale = override.dueDateSnapshot !== (task.dueDate || null)
+                 || override.prioritySnapshot !== (task.priority || null);
+      if (!stale) {
+        return { ...task, classification: override.bucket, classificationReason: 'manually moved', classificationOverridden: true };
+      }
+      overrideService.clearOverride(userId, effectiveProvider, effectiveListId, task.id)
+        .catch(err => console.error('clearOverride (stale) failed:', err.message));
+    }
+  }
   const { bucket, reason } = classifyTaskWithReason(task, rules);
   return { ...task, classification: bucket, classificationReason: reason };
 }
@@ -1244,8 +1270,9 @@ app.get('/api/tasks/unified', ...apiKeyAuthSub, async (req, res) => {
 
     const { allTasks, providerErrors } = await fetchAllTasksForUser(req, userId);
 
-    const rules    = await userService.getClassificationRules(userId) || await getSystemDefault();
-    const annotated = allTasks.map(t => annotateClassification(t, rules));
+    const rules     = await userService.getClassificationRules(userId) || await getSystemDefault();
+    const overrides = await overrideService.getOverridesForUser(userId);
+    const annotated = allTasks.map(t => annotateClassification(t, rules, overrides, userId));
     const result   = { user: req.user.username, tasks: annotated };
 
     // Only cache complete results — partial results should retry on next request
@@ -1425,8 +1452,9 @@ app.get('/api/lists/:listId/tasks', ...apiKeyAuthSub, async (req, res) => {
 
     await initializeProvider(provider, providerName, req.user.userId);
     const tasks = await provider.getTasks(listId);
-    const rules = await userService.getClassificationRules(req.user.userId) || await getSystemDefault();
-    const annotated = tasks.map(t => annotateClassification(t, rules));
+    const rules     = await userService.getClassificationRules(req.user.userId) || await getSystemDefault();
+    const overrides = await overrideService.getOverridesForUser(req.user.userId);
+    const annotated = tasks.map(t => annotateClassification(t, rules, overrides, req.user.userId, providerName, listId));
     const result = { provider: providerName, user: req.user.username, listId, tasks: annotated };
     cache.set(cacheKey, result, TTL.tasks);
     res.json(result);
@@ -1442,8 +1470,9 @@ app.get('/api/lists/:listId/tasks/:taskId', ...apiKeyAuthSub, async (req, res) =
     await initializeProvider(provider, providerName, req.user.userId);
 
     const task = await provider.getTask(listId, taskId);
-    const rules = await userService.getClassificationRules(req.user.userId) || await getSystemDefault();
-    res.json({ provider: providerName, user: req.user.username, listId, task: annotateClassification(task, rules) });
+    const rules     = await userService.getClassificationRules(req.user.userId) || await getSystemDefault();
+    const overrides = await overrideService.getOverridesForUser(req.user.userId);
+    res.json({ provider: providerName, user: req.user.username, listId, task: annotateClassification(task, rules, overrides, req.user.userId, providerName, listId) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1493,6 +1522,49 @@ app.patch('/api/lists/:listId/tasks/:taskId/complete', ...apiKeyAuthSub, idempot
     res.json({ provider: providerName, user: req.user.username, listId, taskId, ...result });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+const VALID_BUCKETS = new Set(['now', 'next', 'later']);
+
+// Manual bucket move (drag-and-drop in the UI, or a direct API call). Pins the
+// task to the requested bucket via task_bucket_overrides, taking precedence
+// over rule-based classification until the task's dueDate/priority changes
+// (see annotateClassification above). Also logs a bucket_override signal to
+// triage_feedback_events for future triage-engine calibration (see
+// docs/triage-engine-implementation-plan.md, Phase 4 §6, subsection 4a —
+// signal collection only; 4b/4c calibration is out of scope here, gated on
+// Phase 3 AI scoring shipping first).
+app.patch('/api/lists/:listId/tasks/:taskId/bucket', ...apiKeyAuthSub, idempotencyMiddleware, async (req, res) => {
+  try {
+    const { listId, taskId } = req.params;
+    const { bucket } = req.body || {};
+    if (!VALID_BUCKETS.has(bucket)) {
+      return apiError(res, 'invalid_request', "bucket must be one of 'now', 'next', 'later'");
+    }
+
+    const { provider, providerName } = getProviderForUser(req);
+    await initializeProvider(provider, providerName, req.user.userId);
+
+    const task  = await provider.getTask(listId, taskId);
+    const rules = await userService.getClassificationRules(req.user.userId) || await getSystemDefault();
+    const { bucket: predicted } = classifyTaskWithReason(task, rules);
+
+    await overrideService.setOverride(req.user.userId, providerName, listId, taskId, bucket, task.dueDate || null, task.priority || null);
+    logTriageFeedback({ userId: req.user.userId, taskId, signalType: 'bucket_override', predicted, observed: bucket });
+
+    cache.delete(`tasks:${req.user.userId}:${providerName}:${listId}`);
+    cache.delete(`unified:${req.user.userId}`);
+
+    res.json({
+      provider: providerName,
+      user: req.user.username,
+      listId,
+      taskId,
+      task: { ...task, provider: providerName, listId, classification: bucket, classificationReason: 'manually moved', classificationOverridden: true }
+    });
+  } catch (error) {
+    apiError(res, 'internal_error', error.message);
   }
 });
 

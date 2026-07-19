@@ -19,7 +19,7 @@
     "test": "node test/test-integration.js && npm run test:beta",
     "test:local": "BASE_URL=http://localhost:3500 node test/test-integration.js",
     "test:predicates": "node test/test-predicate-engine.js",
-    "test:beta": "npm run test:predicates && node test/test-beta-api.js && node test/test-mcp.js"
+    "test:beta": "npm run test:predicates && node test/test-beta-api.js && node test/test-mcp.js && node test/test-feedback.js"
   },
   "dependencies": {
     "@azure/identity": "^4.0.0",
