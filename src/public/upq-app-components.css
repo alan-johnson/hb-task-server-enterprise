@@ -259,6 +259,20 @@ body.legal-page .highlight a {
 .task-card-next { border-left-color: #ffb020 !important; }
 .task-card-later { border-left-color: var(--hb-border) !important; }
 
+/* The translucent cyan tint on the other 3 edges (.task-card:hover, above)
+   is too subtle to reliably register as "this is the card I'm hovering."
+   Thicken the existing Now/Next/Later left stripe on hover instead — same
+   category color, just wider — which reinforces which item is under the
+   cursor regardless of how muted that category's color is (e.g. Later's
+   neutral gray). padding-left is reduced by the same amount so the text
+   doesn't shift. */
+.task-card-now:hover,
+.task-card-next:hover,
+.task-card-later:hover {
+  border-left-width: 6px !important;
+  padding-left: calc(1.25rem - 6px) !important;
+}
+
 .tag-section-now { color: #ff8095 !important; }
 .tag-section-next { color: #ffcc66 !important; }
 .tag-section-later { color: var(--hb-muted) !important; }
