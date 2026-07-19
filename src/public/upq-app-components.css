@@ -197,7 +197,13 @@ body.legal-page .highlight a {
 .list-meta { color: var(--hb-muted) !important; }
 .list-count { background: var(--hb-bg-alt) !important; color: var(--hb-muted) !important; }
 .list-count-loading { color: #565f78 !important; }
-.list-card-link:hover { box-shadow: 0 8px 24px rgba(0,0,0,.35) !important; }
+/* Hover border treatment copied from handsbreadth.com/products/index.html's
+   .card:hover (site-theme.css): border tints to translucent brand cyan plus
+   a lift shadow, signaling the whole card is navigable/clickable. */
+.list-card-link:hover {
+  border-color: rgba(47, 208, 255, .48) !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35) !important;
+}
 
 .empty-state, .loading-state { color: var(--hb-muted) !important; }
 .empty-state a { color: var(--hb-accent) !important; }
@@ -216,6 +222,15 @@ body.legal-page .highlight a {
 .task-name-done { color: #565f78 !important; }
 .task-due, .task-notes { color: var(--hb-muted) !important; }
 .task-expand-icon { color: var(--hb-muted) !important; }
+/* Same hover border treatment as .list-card, applied to every task card
+   (not just expandable ones) — but only the top/right/bottom edges, so the
+   Now/Next/Later left-edge priority stripe (border-left-color, set below)
+   stays visible instead of being overridden by the hover cyan. */
+.task-card:hover {
+  border-top-color: rgba(47, 208, 255, .48) !important;
+  border-right-color: rgba(47, 208, 255, .48) !important;
+  border-bottom-color: rgba(47, 208, 255, .48) !important;
+}
 .task-card-expandable:hover { box-shadow: 0 8px 24px rgba(0,0,0,.3) !important; }
 .task-body-expandable:hover .task-name { color: var(--hb-accent) !important; }
 

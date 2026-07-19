@@ -29,12 +29,12 @@
     .support-hero h1 {
       font-size: 1.7rem;
       font-weight: 700;
-      color: #182471;
+      color: var(--hb-text);
       margin-bottom: .5rem;
     }
 
     .support-hero p {
-      color: #666;
+      color: var(--hb-muted);
       font-size: 1rem;
     }
 
@@ -72,7 +72,7 @@
     .support-section h2 {
       font-size: 1.3rem;
       font-weight: 700;
-      color: #182471;
+      color: var(--hb-text);
       border-bottom: 2px solid #e8e8ed;
       padding-bottom: .5rem;
       margin-bottom: 1.25rem;
@@ -82,14 +82,14 @@
     .support-section h3 {
       font-size: 1.05rem;
       font-weight: 600;
-      color: #333;
+      color: var(--hb-muted);
       margin: 1.5rem 0 .6rem;
       scroll-margin-top: 80px;
     }
 
     .support-section p {
       font-size: .95rem;
-      color: #444;
+      color: var(--hb-muted);
       line-height: 1.7;
       margin-bottom: .75rem;
     }
@@ -102,9 +102,23 @@
 
     .support-section li {
       font-size: .95rem;
-      color: #444;
+      color: var(--hb-muted);
       line-height: 1.7;
       margin-bottom: .25rem;
+    }
+
+    /* In-body links (e.g. tasks.google.com in Troubleshooting) had no color
+       rule of their own and fell back to the plain browser-default blue —
+       bring them up to the branded accent used for every other link. */
+    .support-section a {
+      color: var(--hb-accent);
+    }
+    /* Exception: links inside the light .steps/.faq-answer boxes need to
+       stay a dark, readable blue — the light accent cyan would wash out
+       against their white/near-white backgrounds. */
+    .steps .step-body a,
+    .faq-answer a {
+      color: #182471;
     }
 
     /* ── Step-by-step boxes ── */
