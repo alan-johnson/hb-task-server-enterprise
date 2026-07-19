@@ -164,6 +164,13 @@ body.legal-page .highlight a {
 }
 .provider-name { color: var(--hb-text) !important; }
 .provider-desc { color: var(--hb-muted) !important; }
+/* .provider-desc's own color doesn't reach a descendant <a> — the browser's
+   default link color is a direct rule on the anchor itself, which beats an
+   inherited color from an ancestor regardless of !important. .provider-card
+   always sits on the dark theme's card background, so the branded accent
+   reads fine here (unlike .support-section's .steps/.faq-answer, which sit
+   on light boxes and need a dark link color instead — see there). */
+.provider-desc a { color: var(--hb-accent) !important; }
 
 .badge-builtin { background: rgba(47, 208, 255, .12) !important; color: var(--hb-accent) !important; }
 .badge-connected { background: rgba(123, 92, 255, .16) !important; color: #b3a1ff !important; }

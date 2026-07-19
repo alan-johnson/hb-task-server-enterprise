@@ -32,8 +32,14 @@ dist/
 build/
 coverage/
 
-# Docs
+# Docs (internal/working docs stay untracked — see docs/ at repo root).
+# src/public/docs/ is the deliberate exception: publicly-servable developer
+# docs, copied there on purpose from the private docs/ above. Un-ignore it
+# explicitly rather than relying on this pattern being anchored, since
+# `docs/` with no leading slash matches a directory named docs at any depth.
 docs/
+!src/public/docs/
+!src/public/docs/**
 TODO.md
 MARKETING.md
 SECURITY-AUDIT.md

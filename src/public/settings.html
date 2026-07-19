@@ -34,8 +34,9 @@
         <div class="user-info" id="user-info">Loading…</div>
         <div id="subscription-header-info" style="font-size:.8rem;color:#888;margin-top:.15rem"></div>
       </div>
-      <div style="display:flex;gap:.5rem;align-items:center">
+      <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
         <a href="/all-tasks.html" class="btn btn-primary btn-sm">View Tasks</a>
+        <a href="/developer.html" class="btn btn-secondary btn-sm">Developer</a>
         <a href="/support.html" class="btn btn-secondary btn-sm">Support</a>
         <button class="btn btn-secondary btn-sm" style="white-space:nowrap" onclick="logout()">Log Out</button>
       </div>
@@ -109,21 +110,6 @@
 
     <div class="section-title" style="margin-top:2rem">Danger Zone</div>
 
-    <div class="provider-card">
-      <div class="provider-info">
-        <div class="provider-name">Classification Rules <span style="font-weight:400;font-size:.8rem;color:#999">— developer feature</span></div>
-        <div class="provider-desc" id="classification-status">Loading…</div>
-        <div class="provider-desc" style="margin-top:.35rem">Export your rules as a JSON file, edit it in VS Code (the exported file's <code>$schema</code> field gives you autocomplete and inline validation for free), then Import to check and apply it. See <code>docs/REST-API.md</code> in the repo for the full reference.</div>
-      </div>
-      <div class="provider-actions">
-        <button class="btn btn-secondary btn-sm" onclick="exportClassification()">Export</button>
-        <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">
-          Import
-          <input type="file" accept=".json,application/json" style="display:none" onchange="importClassification(this)">
-        </label>
-      </div>
-    </div>
-
     <div class="provider-card" id="danger-zone-card">
       <div class="provider-info">
         <div class="provider-name">Delete Account</div>
@@ -192,19 +178,6 @@
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeDeleteAccountModal()">Cancel</button>
         <button class="btn btn-danger" id="confirm-delete-account-btn" onclick="confirmDeleteAccount()">Delete My Account</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── Import preview modal ── -->
-  <div id="import-modal" class="modal-overlay" style="display:none" onclick="handleImportOverlayClick(event)">
-    <div class="modal-box">
-      <h2>Import Classification Rules</h2>
-      <p style="color:#555;margin:.25rem 0 1rem">Your file was checked against the classification rules schema. Review the result before importing.</p>
-      <div id="import-preview" style="background:#f8f8f8;border:1px solid #e0e0e0;border-radius:6px;padding:1rem;font-size:.88rem;line-height:1.6"></div>
-      <div class="modal-actions" style="margin-top:1.25rem">
-        <button class="btn btn-secondary" onclick="closeImportModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="confirmImport()">Import</button>
       </div>
     </div>
   </div>
@@ -493,21 +466,6 @@
       }
     }
 
-    // ── Classification rules ───────────────────────────────────
-
-    async function loadClassificationRules() {
-      try {
-        const res = await fetch('/auth/me/classification', { headers: authHeaders() });
-        if (!res.ok) return;
-        const data = await res.json();
-        document.getElementById('classification-status').textContent =
-          (data.isCustom ? 'Using your custom rules' : 'Using server defaults') +
-          ` (schemaVersion ${data.rules?.schemaVersion || 1})`;
-      } catch {
-        document.getElementById('classification-status').textContent = 'Could not load rules.';
-      }
-    }
-
     // ── Subscription management ────────────────────────────────
 
     let billingInfo = null;
@@ -696,118 +654,12 @@
       }
     }
 
-    init();
-    loadSubscriptionInfo();
-    loadClassificationRules();
-
-    // ── Export / Import (JSON predicate-tree rules — see
-    // docs/REST-API.md "Editing classification rules in VS Code") ──────
-
-    async function exportClassification() {
-      try {
-        const res = await fetch('/auth/me/classification/export', { headers: authHeaders() });
-        if (!res.ok) { showBanner('Failed to export rules.', 'error'); return; }
-        const data = await res.json();
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url  = URL.createObjectURL(blob);
-        const a    = document.createElement('a');
-        a.href     = url;
-        a.download = 'classification-rules.json';
-        a.click();
-        URL.revokeObjectURL(url);
-      } catch {
-        showBanner('Could not reach the server.', 'error');
-      }
-    }
-
-    let pendingImportRules = null;
-
-    async function importClassification(input) {
-      const file = input.files[0];
-      input.value = '';           // reset so same file can be re-imported
-      if (!file) return;
-
-      let text;
-      try { text = await file.text(); }
-      catch { showBanner('Could not read file.', 'error'); return; }
-
-      let body;
-      try { body = JSON.parse(text); }
-      catch (e) { showBanner('Not valid JSON: ' + e.message, 'error'); return; }
-
-      try {
-        const res = await fetch('/auth/me/classification/validate', {
-          method: 'POST',
-          headers: authHeaders(),
-          body: JSON.stringify(body)
-        });
-        if (!res.ok) { const d = await res.json(); showBanner(d.error?.message || 'Validation request failed', 'error'); return; }
-        showImportPreview(await res.json());
-      } catch {
-        showBanner('Could not reach the server.', 'error');
-      }
-    }
-
-    function showImportPreview(validation) {
-      const preview  = document.getElementById('import-preview');
-      const applyBtn = document.querySelector('#import-modal .btn-primary');
-
-      if (validation.valid) {
-        pendingImportRules = validation.rules;
-        applyBtn.disabled = false;
-        preview.innerHTML = `
-          <div style="color:#2a7d2a;font-weight:600;margin-bottom:.6rem">✓ Valid — schemaVersion ${validation.rules.schemaVersion || 1}</div>
-          <pre style="white-space:pre-wrap;word-break:break-word;margin:0;font-family:ui-monospace,monospace;font-size:.82rem">${escHtml(JSON.stringify(validation.rules, null, 2))}</pre>
-        `;
-      } else {
-        pendingImportRules = null;
-        applyBtn.disabled = true;
-        const errors = (validation.errors || []).map(e => `<li><code>${escHtml(e.path || '(root)')}</code>: ${escHtml(e.message)}</li>`).join('');
-        preview.innerHTML = `
-          <div style="color:#c0392b;font-weight:600;margin-bottom:.6rem">✗ Invalid — fix these and re-import</div>
-          <ul style="margin:0;padding-left:1.2rem">${errors || '<li>Unknown validation error</li>'}</ul>
-        `;
-      }
-      document.getElementById('import-modal').style.display = 'flex';
-    }
-
     function escHtml(s) {
       return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
-    function closeImportModal() {
-      document.getElementById('import-modal').style.display = 'none';
-      pendingImportRules = null;
-    }
-
-    function handleImportOverlayClick(e) {
-      if (e.target === document.getElementById('import-modal')) closeImportModal();
-    }
-
-    async function confirmImport() {
-      if (!pendingImportRules) return;
-      const btn = document.querySelector('#import-modal .btn-primary');
-      btn.disabled = true;
-      btn.textContent = 'Importing…';
-      try {
-        const res = await fetch('/auth/me/classification', {
-          method: 'PUT',
-          headers: authHeaders(),
-          body: JSON.stringify(pendingImportRules)
-        });
-        if (!res.ok) { const d = await res.json(); showBanner(d.error?.message || 'Failed to import rules', 'error'); }
-        else {
-          showBanner('Classification rules imported successfully.');
-          closeImportModal();
-          await loadClassificationRules();
-        }
-      } catch {
-        showBanner('Could not reach the server.', 'error');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Import';
-      }
-    }
+    init();
+    loadSubscriptionInfo();
   </script>
   <footer class="site-footer">Copyright 2026, handsbreadth LLC</footer>
 </body>

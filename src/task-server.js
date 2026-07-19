@@ -1798,6 +1798,13 @@ function normalizeApiKeyScopes(input) {
   return cleaned.join(',');
 }
 
+// Mints a key (sandbox or live — sandbox:!!sandbox below means an omitted
+// `sandbox` field defaults to a LIVE key, not sandbox) for any logged-in
+// user, no payment required for either kind. This is intentional, current
+// policy, not an oversight: see docs/developer-tier-billing-plan.md for the
+// fully-scoped standalone paid "Developer" tier that would gate live-key
+// creation/usage here, and docs/developer-api-pricing-tiers.md for why it
+// isn't wired up yet (no design-partner pricing validation).
 app.post('/auth/api-keys', authService.requireAuth(), async (req, res) => {
   try {
     const { name, sandbox, scopes } = req.body || {};

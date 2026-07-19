@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UpQ task server — Developer</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="site-theme.css">
+  <link rel="stylesheet" href="upq-app-components.css">
+  <style>
+    pre.code-block {
+      background: var(--hb-bg-alt, #0b1020);
+      border: 1px solid var(--hb-border, #1f2940);
+      border-radius: 8px;
+      padding: 1rem;
+      font-size: .82rem;
+      line-height: 1.6;
+      overflow-x: auto;
+      color: #d7dce8;
+      margin: 0;
+    }
+  </style>
+</head>
+<body class="dashboard">
+  <header class="site-header">
+    <a href="/lists.html" class="hb-logo-lockup">
+      <img src="/images/handsbreadth-logo-web-new-transparent-no-tagline.png" alt="handsbreadth" class="logo-constrained">
+      <span class="hb-logo-tagline">Turn Chaos into Clarity</span>
+    </a>
+    <div style="display:flex;align-items:center;gap:.5rem">
+      <span class="upq-logo-lockup">
+        <span class="upq-logo-text" style="font-size:22px;">UpQ</span>
+        <span class="upq-logo-tagline">Unified Task Server</span>
+      </span>
+    </div>
+  </header>
+  <div class="dashboard-container">
+
+    <div class="dashboard-header">
+      <div>
+        <h1>Developer</h1>
+        <div class="user-info" id="user-info">Loading…</div>
+      </div>
+      <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+        <a href="/all-tasks.html" class="btn btn-primary btn-sm">View Tasks</a>
+        <a href="/settings.html" class="btn btn-secondary btn-sm">Settings</a>
+        <a href="/support.html" class="btn btn-secondary btn-sm">Support</a>
+        <button class="btn btn-secondary btn-sm" style="white-space:nowrap" onclick="logout()">Log Out</button>
+      </div>
+    </div>
+
+    <div id="banner" class="banner" style="display:none"></div>
+
+    <!-- ── Quickstart ── -->
+    <div class="section-title">Quickstart</div>
+    <div class="provider-card" style="flex-direction:column;align-items:stretch;gap:.75rem">
+      <div class="provider-desc">Base URL: <code class="qs-origin">https://tasks.handsbreadth.com</code></div>
+      <div class="provider-desc">Every request needs <code>Authorization: Bearer &lt;your key&gt;</code>. Sandbox keys work immediately against seeded fixture data — no connected Microsoft, Google, or Apple account needed.</div>
+      <pre class="code-block">curl <span class="qs-origin">https://tasks.handsbreadth.com</span>/api/tasks/unified \
+  -H "Authorization: Bearer upq_sandbox_..."</pre>
+      <div class="provider-desc">Full endpoint reference and error codes: <a href="/docs/REST-API.md" target="_blank" rel="noopener">REST-API.md</a> · step-by-step walkthrough: <a href="/docs/quickstart.md" target="_blank" rel="noopener">quickstart.md</a></div>
+    </div>
+
+    <!-- ── API Keys ── -->
+    <div class="section-title" style="margin-top:2rem">API Keys</div>
+    <div id="api-keys-list" style="display:flex;flex-direction:column;gap:.75rem;margin-bottom:.75rem">
+      <div class="loading-state">Loading…</div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="openNewKeyModal()">+ New API Key</button>
+
+    <!-- ── Classification Rules ── -->
+    <div class="section-title" style="margin-top:2rem">Classification Rules</div>
+    <div class="provider-card">
+      <div class="provider-info">
+        <div class="provider-name">Now / Next / Later rules</div>
+        <div class="provider-desc" id="classification-status">Loading…</div>
+        <div class="provider-desc" style="margin-top:.35rem">Export your rules as a JSON file, edit it in VS Code (the exported file's <code>$schema</code> field gives you autocomplete and inline validation for free), then Import to check and apply it. See <a href="/docs/REST-API.md" target="_blank" rel="noopener">the API docs</a> (Task Classification section) for the full reference.</div>
+      </div>
+      <div class="provider-actions">
+        <button class="btn btn-secondary btn-sm" onclick="exportClassification()">Export</button>
+        <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">
+          Import
+          <input type="file" accept=".json,application/json" style="display:none" onchange="importClassification(this)">
+        </label>
+      </div>
+    </div>
+
+    <!-- ── MCP Server ── -->
+    <div class="section-title" style="margin-top:2rem">MCP Server</div>
+    <div class="provider-card" style="flex-direction:column;align-items:stretch;gap:.75rem">
+      <div class="provider-desc">The same triage/rules tools are available as an MCP server, for agents that speak MCP directly rather than calling REST.</div>
+      <div style="font-weight:600;font-size:.9rem">Stdio (local) — from a checkout of this repo</div>
+      <pre class="code-block">git clone https://github.com/alan-johnson/hb-task-server-enterprise.git && cd hb-task-server-enterprise && npm install
+UPQ_API_BASE_URL=<span class="qs-origin">https://tasks.handsbreadth.com</span> UPQ_API_KEY=upq_live_... npm run start:mcp</pre>
+      <div class="provider-desc">See <a href="/docs/quickstart.md" target="_blank" rel="noopener">quickstart.md</a> for the hosted <code>/mcp</code> config, example client config, and the full tool list.</div>
+    </div>
+
+  </div>
+
+  <!-- ── New API Key modal ── -->
+  <div id="new-key-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeNewKeyModal()">
+    <div class="modal-box">
+      <h2>New API Key</h2>
+      <div class="form-group" style="margin-bottom:.75rem">
+        <label for="new-key-name">Name</label>
+        <input id="new-key-name" type="text" placeholder="e.g. my-agent">
+      </div>
+      <label style="display:flex;align-items:flex-start;gap:.5rem;margin-bottom:.75rem;cursor:pointer">
+        <input type="checkbox" id="new-key-sandbox" checked style="margin-top:.2rem">
+        <span>Sandbox key <span style="color:#888;font-size:.85rem">— seeded fixture data, no real account needed. Recommended for testing; uncheck for a live key against your real connected providers.</span></span>
+      </label>
+      <div style="margin-bottom:.5rem;font-size:.85rem;color:#444">Scopes</div>
+      <div style="display:flex;gap:1rem;margin-bottom:1.25rem;font-size:.9rem">
+        <label><input type="checkbox" id="new-key-scope-read" checked> tasks:read</label>
+        <label><input type="checkbox" id="new-key-scope-write" checked> tasks:write</label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeNewKeyModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="createApiKey()">Create Key</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Key created modal (secret shown once) ── -->
+  <div id="key-created-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeKeyCreatedModal()">
+    <div class="modal-box">
+      <h2>API Key Created</h2>
+      <p style="color:#555;margin:.25rem 0 1rem">Copy this key now — it will not be shown again.</p>
+      <div style="background:#f8f8f8;border:1px solid #e0e0e0;border-radius:6px;padding:1rem;font-family:monospace;font-size:.85rem;word-break:break-all;display:flex;align-items:center;gap:.75rem">
+        <span id="new-key-display" style="flex:1;color:#1a73e8"></span>
+        <button class="btn btn-secondary btn-sm" onclick="copyNewKey()">Copy</button>
+      </div>
+      <div class="modal-actions" style="margin-top:1.25rem">
+        <button class="btn btn-primary" onclick="closeKeyCreatedModal()">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Import preview modal ── -->
+  <div id="import-modal" class="modal-overlay" style="display:none" onclick="handleImportOverlayClick(event)">
+    <div class="modal-box">
+      <h2>Import Classification Rules</h2>
+      <p style="color:#555;margin:.25rem 0 1rem">Your file was checked against the classification rules schema. Review the result before importing.</p>
+      <div id="import-preview" style="background:#f8f8f8;border:1px solid #e0e0e0;border-radius:6px;padding:1rem;font-size:.88rem;line-height:1.6"></div>
+      <div class="modal-actions" style="margin-top:1.25rem">
+        <button class="btn btn-secondary" onclick="closeImportModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="confirmImport()">Import</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const token = localStorage.getItem('token');
+    if (!token) { window.location.href = '/login.html'; }
+
+    function authHeaders() {
+      return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+    }
+
+    function logout() {
+      localStorage.clear();
+      window.location.href = '/login.html';
+    }
+
+    function showBanner(msg, type = 'success') {
+      const el = document.getElementById('banner');
+      el.textContent = msg;
+      el.className = `banner banner-${type}`;
+      el.style.display = 'block';
+      setTimeout(() => { el.style.display = 'none'; }, 6000);
+    }
+
+    function escHtml(s) {
+      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    async function loadUserInfo() {
+      try {
+        const res = await fetch('/auth/me', { headers: authHeaders() });
+        if (res.status === 401) { logout(); return; }
+        const data = await res.json();
+        document.getElementById('user-info').textContent = `Signed in as ${data.user.username}`;
+      } catch {
+        document.getElementById('user-info').textContent = '';
+      }
+    }
+
+    // ── API Keys ────────────────────────────────────────────────
+
+    let apiKeys = [];
+
+    async function loadApiKeys() {
+      const el = document.getElementById('api-keys-list');
+      try {
+        const res = await fetch('/auth/api-keys', { headers: authHeaders() });
+        if (!res.ok) { el.innerHTML = '<div class="empty-state">Could not load API keys.</div>'; return; }
+        const data = await res.json();
+        apiKeys = data.keys || [];
+        renderApiKeys();
+      } catch {
+        el.innerHTML = '<div class="empty-state">Could not reach the server.</div>';
+      }
+    }
+
+    function renderApiKeys() {
+      const el = document.getElementById('api-keys-list');
+      if (!apiKeys.length) { el.innerHTML = '<div class="empty-state">No API keys yet. Create one below to get started.</div>'; return; }
+      el.innerHTML = apiKeys.map(k => `
+        <div class="list-card" style="${k.revokedAt ? 'opacity:.55' : ''}">
+          <div class="list-info">
+            <div class="list-name">
+              ${escHtml(k.name)}
+              <span class="badge ${k.sandbox ? 'badge-builtin' : 'badge-connected'}" style="margin-left:.5rem">${k.sandbox ? 'sandbox' : 'live'}</span>
+              ${k.revokedAt ? '<span style="color:#ff8095;font-size:.8rem;margin-left:.5rem">revoked</span>' : ''}
+            </div>
+            <div class="list-meta">
+              ${escHtml(k.prefix)}… · ${escHtml(k.scopes)} · created ${new Date(k.createdAt).toLocaleDateString()}${k.lastUsedAt ? ' · last used ' + new Date(k.lastUsedAt).toLocaleDateString() : ''}
+            </div>
+          </div>
+          ${!k.revokedAt ? `<button class="btn btn-danger btn-sm" onclick="revokeKey('${k.id}')">Revoke</button>` : ''}
+        </div>
+      `).join('');
+    }
+
+    function openNewKeyModal() {
+      document.getElementById('new-key-name').value = '';
+      document.getElementById('new-key-sandbox').checked = true;
+      document.getElementById('new-key-scope-read').checked = true;
+      document.getElementById('new-key-scope-write').checked = true;
+      document.getElementById('new-key-modal').style.display = 'flex';
+    }
+
+    function closeNewKeyModal() {
+      document.getElementById('new-key-modal').style.display = 'none';
+    }
+
+    async function createApiKey() {
+      const name = document.getElementById('new-key-name').value.trim() || 'default';
+      const sandbox = document.getElementById('new-key-sandbox').checked;
+      const scopes = [];
+      if (document.getElementById('new-key-scope-read').checked)  scopes.push('tasks:read');
+      if (document.getElementById('new-key-scope-write').checked) scopes.push('tasks:write');
+      if (!scopes.length) { showBanner('Select at least one scope.', 'error'); return; }
+
+      const btn = document.querySelector('#new-key-modal .btn-primary');
+      btn.disabled = true;
+      btn.textContent = 'Creating…';
+      try {
+        const res = await fetch('/auth/api-keys', {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ name, sandbox, scopes })
+        });
+        const data = await res.json();
+        if (!res.ok) { showBanner(data.error?.message || data.error || 'Failed to create key', 'error'); return; }
+        closeNewKeyModal();
+        document.getElementById('new-key-display').textContent = data.apiKey;
+        document.getElementById('key-created-modal').style.display = 'flex';
+        await loadApiKeys();
+      } catch {
+        showBanner('Could not reach the server.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create Key';
+      }
+    }
+
+    function closeKeyCreatedModal() {
+      document.getElementById('key-created-modal').style.display = 'none';
+    }
+
+    function copyNewKey() {
+      const text = document.getElementById('new-key-display').textContent;
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => showBanner('Copied to clipboard.'));
+    }
+
+    async function revokeKey(id) {
+      if (!confirm('Revoke this API key? Any integration using it will stop working immediately.')) return;
+      try {
+        const res = await fetch(`/auth/api-keys/${id}`, { method: 'DELETE', headers: authHeaders() });
+        if (!res.ok) { const d = await res.json(); showBanner(d.error?.message || 'Failed to revoke key', 'error'); return; }
+        showBanner('API key revoked.');
+        await loadApiKeys();
+      } catch {
+        showBanner('Could not reach the server.', 'error');
+      }
+    }
+
+    // ── Classification rules (export / validate / import) ───────
+
+    async function loadClassificationRules() {
+      try {
+        const res = await fetch('/auth/me/classification', { headers: authHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        document.getElementById('classification-status').textContent =
+          (data.isCustom ? 'Using your custom rules' : 'Using server defaults') +
+          ` (schemaVersion ${data.rules?.schemaVersion || 1})`;
+      } catch {
+        document.getElementById('classification-status').textContent = 'Could not load rules.';
+      }
+    }
+
+    async function exportClassification() {
+      try {
+        const res = await fetch('/auth/me/classification/export', { headers: authHeaders() });
+        if (!res.ok) { showBanner('Failed to export rules.', 'error'); return; }
+        const data = await res.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = 'classification-rules.json';
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch {
+        showBanner('Could not reach the server.', 'error');
+      }
+    }
+
+    let pendingImportRules = null;
+
+    async function importClassification(input) {
+      const file = input.files[0];
+      input.value = '';           // reset so same file can be re-imported
+      if (!file) return;
+
+      let text;
+      try { text = await file.text(); }
+      catch { showBanner('Could not read file.', 'error'); return; }
+
+      let body;
+      try { body = JSON.parse(text); }
+      catch (e) { showBanner('Not valid JSON: ' + e.message, 'error'); return; }
+
+      try {
+        const res = await fetch('/auth/me/classification/validate', {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) { const d = await res.json(); showBanner(d.error?.message || 'Validation request failed', 'error'); return; }
+        showImportPreview(await res.json());
+      } catch {
+        showBanner('Could not reach the server.', 'error');
+      }
+    }
+
+    function showImportPreview(validation) {
+      const preview  = document.getElementById('import-preview');
+      const applyBtn = document.querySelector('#import-modal .btn-primary');
+
+      if (validation.valid) {
+        pendingImportRules = validation.rules;
+        applyBtn.disabled = false;
+        preview.innerHTML = `
+          <div style="color:#2a7d2a;font-weight:600;margin-bottom:.6rem">✓ Valid — schemaVersion ${validation.rules.schemaVersion || 1}</div>
+          <pre style="white-space:pre-wrap;word-break:break-word;margin:0;font-family:ui-monospace,monospace;font-size:.82rem">${escHtml(JSON.stringify(validation.rules, null, 2))}</pre>
+        `;
+      } else {
+        pendingImportRules = null;
+        applyBtn.disabled = true;
+        const errors = (validation.errors || []).map(e => `<li><code>${escHtml(e.path || '(root)')}</code>: ${escHtml(e.message)}</li>`).join('');
+        preview.innerHTML = `
+          <div style="color:#c0392b;font-weight:600;margin-bottom:.6rem">✗ Invalid — fix these and re-import</div>
+          <ul style="margin:0;padding-left:1.2rem">${errors || '<li>Unknown validation error</li>'}</ul>
+        `;
+      }
+      document.getElementById('import-modal').style.display = 'flex';
+    }
+
+    function closeImportModal() {
+      document.getElementById('import-modal').style.display = 'none';
+      pendingImportRules = null;
+    }
+
+    function handleImportOverlayClick(e) {
+      if (e.target === document.getElementById('import-modal')) closeImportModal();
+    }
+
+    async function confirmImport() {
+      if (!pendingImportRules) return;
+      const btn = document.querySelector('#import-modal .btn-primary');
+      btn.disabled = true;
+      btn.textContent = 'Importing…';
+      try {
+        const res = await fetch('/auth/me/classification', {
+          method: 'PUT',
+          headers: authHeaders(),
+          body: JSON.stringify(pendingImportRules)
+        });
+        if (!res.ok) { const d = await res.json(); showBanner(d.error?.message || 'Failed to import rules', 'error'); }
+        else {
+          showBanner('Classification rules imported successfully.');
+          closeImportModal();
+          await loadClassificationRules();
+        }
+      } catch {
+        showBanner('Could not reach the server.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Import';
+      }
+    }
+
+    // ── Init ──────────────────────────────────────────────────────
+
+    document.querySelectorAll('.qs-origin').forEach(el => { el.textContent = window.location.origin; });
+
+    loadUserInfo();
+    loadApiKeys();
+    loadClassificationRules();
+  </script>
+  <footer class="site-footer">Copyright 2026, handsbreadth LLC</footer>
+</body>
+</html>

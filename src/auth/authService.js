@@ -90,6 +90,15 @@ class AuthService {
   // existing JWT-authenticated browser users still need an active
   // subscription, same as before this beta work. Must run after
   // requireApiKeyOrJWT() so req.authMethod is populated.
+  //
+  // Reaffirmed deliberately, not stale beta-era leftover code: a standalone
+  // paid "Developer" tier (gating live-key creation/usage, independent of
+  // this UpQ subscription) was scoped in full — schema, webhook, checkout,
+  // enforcement — see docs/developer-tier-billing-plan.md. But
+  // docs/developer-api-pricing-tiers.md, which that plan implements against,
+  // says not to wire up billing until design-partner interest validates the
+  // proposed tiers. So live API-key creation/usage stays free for everyone
+  // until that happens — don't add a gate here without reading both docs.
   requireSubscriptionUnlessApiKey(userService) {
     const gate = this.requireSubscription(userService);
     return (req, res, next) => {
