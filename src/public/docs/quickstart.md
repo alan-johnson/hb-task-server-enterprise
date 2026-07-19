@@ -161,18 +161,27 @@ Example MCP client config:
 }
 ```
 
-**Hosted** (no local process — Streamable HTTP at `/mcp`, same Bearer API key):
+**Hosted** (no local process — Streamable HTTP at `/mcp`, same Bearer API key). For Claude Code, this is one command — no config file to hand-edit:
+
+```bash
+claude mcp add --transport http upq https://tasks.handsbreadth.com/mcp --header "Authorization: Bearer upq_live_..."
+```
+
+Other clients (e.g. Claude Desktop) still need the config added directly to their MCP config file:
 
 ```json
 {
   "mcpServers": {
     "upq": {
+      "type": "http",
       "url": "https://tasks.handsbreadth.com/mcp",
       "headers": { "Authorization": "Bearer upq_live_..." }
     }
   }
 }
 ```
+
+Both of the above, pre-filled with your actual key (no placeholder to swap out), are generated automatically in the "API Key Created" dialog right after you mint a key on the [Developer page](/developer.html).
 
 Three tools ship in the beta: `get_triage`, `get_rules`, `set_rules` — the same surface as the REST quickstart above, kept intentionally small. Full task CRUD already exists on the REST API and is cheap to add as MCP tools; ask if you need it.
 

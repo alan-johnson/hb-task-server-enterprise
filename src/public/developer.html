@@ -135,6 +135,23 @@ UPQ_API_BASE_URL=<span class="qs-origin">https://tasks.handsbreadth.com</span> U
         <span id="new-key-display" style="flex:1;color:#1a73e8"></span>
         <button class="btn btn-secondary btn-sm" onclick="copyNewKey()">Copy</button>
       </div>
+
+      <div style="margin-top:1.25rem">
+        <div style="font-weight:600;font-size:.9rem;margin-bottom:.5rem;color:#333">Add to Claude Code</div>
+        <div style="background:#f8f8f8;border:1px solid #e0e0e0;border-radius:6px;padding:.85rem 1rem;display:flex;align-items:center;gap:.75rem">
+          <code id="new-key-cli-command" style="flex:1;font-size:.8rem;word-break:break-all;color:#333"></code>
+          <button class="btn btn-secondary btn-sm" onclick="copyNewKeyCli()">Copy</button>
+        </div>
+      </div>
+
+      <div style="margin-top:1rem">
+        <div style="font-weight:600;font-size:.9rem;margin-bottom:.5rem;color:#333">Or add to Claude Desktop (mcpServers config)</div>
+        <div style="background:#f8f8f8;border:1px solid #e0e0e0;border-radius:6px;padding:.85rem 1rem;display:flex;align-items:flex-start;gap:.75rem">
+          <pre id="new-key-json-config" style="flex:1;font-size:.78rem;white-space:pre-wrap;word-break:break-word;margin:0;color:#333"></pre>
+          <button class="btn btn-secondary btn-sm" onclick="copyNewKeyJson()">Copy</button>
+        </div>
+      </div>
+
       <div class="modal-actions" style="margin-top:1.25rem">
         <button class="btn btn-primary" onclick="closeKeyCreatedModal()">Done</button>
       </div>
@@ -260,6 +277,19 @@ UPQ_API_BASE_URL=<span class="qs-origin">https://tasks.handsbreadth.com</span> U
         if (!res.ok) { showBanner(data.error?.message || data.error || 'Failed to create key', 'error'); return; }
         closeNewKeyModal();
         document.getElementById('new-key-display').textContent = data.apiKey;
+
+        // Pre-fill the actual key into both the Claude Code CLI command and
+        // the Claude Desktop JSON config, so there's no placeholder for the
+        // user to remember to swap out — copy-paste, done.
+        const mcpUrl = `${window.location.origin}/mcp`;
+        document.getElementById('new-key-cli-command').textContent =
+          `claude mcp add --transport http upq ${mcpUrl} --header "Authorization: Bearer ${data.apiKey}"`;
+        document.getElementById('new-key-json-config').textContent = JSON.stringify({
+          mcpServers: {
+            upq: { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${data.apiKey}` } }
+          }
+        }, null, 2);
+
         document.getElementById('key-created-modal').style.display = 'flex';
         await loadApiKeys();
       } catch {
@@ -276,6 +306,16 @@ UPQ_API_BASE_URL=<span class="qs-origin">https://tasks.handsbreadth.com</span> U
 
     function copyNewKey() {
       const text = document.getElementById('new-key-display').textContent;
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => showBanner('Copied to clipboard.'));
+    }
+
+    function copyNewKeyCli() {
+      const text = document.getElementById('new-key-cli-command').textContent;
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => showBanner('Copied to clipboard.'));
+    }
+
+    function copyNewKeyJson() {
+      const text = document.getElementById('new-key-json-config').textContent;
       if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => showBanner('Copied to clipboard.'));
     }
 
