@@ -12,6 +12,27 @@
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="site-theme.css">
   <link rel="stylesheet" href="upq-app-components.css">
+  <style>
+    .password-field { position: relative; }
+    .password-field input { padding-right: 2.4rem; }
+    .password-toggle-btn {
+      position: absolute;
+      right: .4rem;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      align-items: center;
+      background: none;
+      border: none;
+      padding: .3rem;
+      cursor: pointer;
+      color: #888;
+    }
+    .password-toggle-btn:hover { color: var(--hb-accent); }
+    .password-toggle-btn .eye-off-icon { display: none; }
+    .password-toggle-btn.is-visible .eye-icon { display: none; }
+    .password-toggle-btn.is-visible .eye-off-icon { display: block; }
+  </style>
 </head>
 <body class="auth-page">
   <header class="site-header hero">
@@ -38,7 +59,13 @@
       </div>
       <div class="form-group">
         <label for="login-password">Password</label>
-        <input id="login-password" type="password" autocomplete="current-password" required>
+        <div class="password-field">
+          <input id="login-password" type="password" autocomplete="current-password" required>
+          <button type="button" class="password-toggle-btn" aria-label="Show password" onclick="togglePasswordVisibility('login-password', this)">
+            <svg class="eye-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="eye-off-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a21.8 21.8 0 0 1 5.06-6.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a21.8 21.8 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
+        </div>
       </div>
       <button type="submit" class="btn btn-primary">Sign In</button>
     </form>
@@ -90,7 +117,13 @@
       </div>
       <div class="form-group">
         <label for="reg-password">Password</label>
-        <input id="reg-password" type="password" autocomplete="new-password" required>
+        <div class="password-field">
+          <input id="reg-password" type="password" autocomplete="new-password" required>
+          <button type="button" class="password-toggle-btn" aria-label="Show password" onclick="togglePasswordVisibility('reg-password', this)">
+            <svg class="eye-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="eye-off-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a21.8 21.8 0 0 1 5.06-6.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a21.8 21.8 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
+        </div>
       </div>
       <div class="form-group">
         <label for="reg-email">Email</label>
@@ -148,6 +181,14 @@
       document.getElementById('toggle-link').textContent              = showingLogin ? 'Register' : 'Sign In';
       document.getElementById('toggle-area').style.display            = '';
       hideError();
+    }
+
+    function togglePasswordVisibility(inputId, btn) {
+      const input = document.getElementById(inputId);
+      const showing = input.type === 'password';
+      input.type = showing ? 'text' : 'password';
+      btn.classList.toggle('is-visible', showing);
+      btn.setAttribute('aria-label', showing ? 'Hide password' : 'Show password');
     }
 
     function showError(msg) {
