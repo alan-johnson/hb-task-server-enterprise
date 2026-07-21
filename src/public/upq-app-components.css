@@ -88,13 +88,24 @@ body.legal-page .highlight a {
 }
 
 /* ── handsbreadth wordmark lockup (logo image + tagline underneath) ── */
-/* Logo image sizing copied verbatim from handsbreadth.com's body > header:
-   style.css .logo-constrained (max-height 50px, width auto, display block)
-   overridden by site-theme.css .logo-constrained (max-height 32px !important). */
+/* Logo height is pinned to match the UpQ wordmark's font-size on the other
+   side of the header (28px default / 40px hero / 30px hero-mobile), so the
+   two lockups read as the same visual weight. Width is auto so the logo
+   scales proportionally instead of stretching or squashing. */
 .logo-constrained {
-  max-height: 32px !important;
+  height: 28px !important;
+  max-height: none !important;
   width: auto !important;
   display: block !important;
+  /* style.css's .site-header img sets border-radius 8px/14px for old raster
+     logos with opaque backgrounds. This is a transparent-background wordmark
+     PNG whose artwork (the "hb" square icon) sits flush against the top-left
+     corner, so any border-radius arcs directly into the art itself. */
+  border-radius: 0 !important;
+}
+.site-header.hero .logo-constrained { height: 40px !important; }
+@media (max-width: 650px) {
+  .site-header.hero .logo-constrained { height: 30px !important; }
 }
 .hb-logo-lockup {
   display: flex;

@@ -35,7 +35,7 @@ body > header {
   border-bottom: 1px solid rgba(31, 41, 64, .8);
 }
 
-.logo-constrained { max-height: 32px !important; }
+/* Height is set in upq-app-components.css to match the UpQ wordmark's font-size. */
 
 header nav { display: flex; align-items: center; gap: 4px; }
 header nav a {
