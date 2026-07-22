@@ -10,6 +10,13 @@ const crypto = require('crypto');
 const AUTH_TIMEOUT_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 60_000;
 const PING_INTERVAL_MS = 30_000;
+// Cloudflare's proxy periodically drops long-lived WebSocket connections
+// (observed every ~15-20 min in prod, outside our control on the Free plan).
+// The Mac bridge agent reconnects within a few seconds of that; wait out a
+// typical reconnect gap before failing the request instead of erroring on
+// every cycle.
+const RECONNECT_WAIT_MS = 10_000;
+const RECONNECT_POLL_MS = 250;
 
 class BridgeServer {
   constructor() {
@@ -42,9 +49,22 @@ class BridgeServer {
     return !!(conn && conn.ws.readyState === WebSocket.OPEN);
   }
 
+  async _waitForConnection(userId) {
+    const deadline = Date.now() + RECONNECT_WAIT_MS;
+    while (Date.now() < deadline) {
+      const conn = this.connections.get(userId);
+      if (conn && conn.ws.readyState === WebSocket.OPEN) return conn;
+      await new Promise((resolve) => setTimeout(resolve, RECONNECT_POLL_MS));
+    }
+    return null;
+  }
+
   async request(userId, method, params = {}) {
-    const conn = this.connections.get(userId);
+    let conn = this.connections.get(userId);
     if (!conn || conn.ws.readyState !== WebSocket.OPEN) {
+      conn = await this._waitForConnection(userId);
+    }
+    if (!conn) {
       throw new Error('Apple Reminders bridge is not connected. Ensure hb-task-server is running and configured with a valid BRIDGE_API_KEY.');
     }
 

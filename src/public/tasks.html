@@ -219,9 +219,14 @@
 
     function showCredentialError() {
       const container = document.getElementById('provider-errors');
+      // Apple Reminders has no OAuth credentials to expire — every failure for
+      // this provider is the Mac bridge app being disconnected, not a stale token.
+      const msg = provider === 'apple'
+        ? `<strong>${escHtml(p.label)}</strong> is not connected — ensure the bridge app is running on your Mac. <a href="/settings.html">Check in Settings →</a>`
+        : `<strong>${escHtml(p.label)}</strong> tasks could not be loaded — credentials may have expired. <a href="/settings.html">Reconnect in Settings →</a>`;
       container.innerHTML = `
         <div class="banner banner-warning" style="margin-bottom:.75rem">
-          <span><strong>${escHtml(p.label)}</strong> tasks could not be loaded — credentials may have expired. <a href="/settings.html">Reconnect in Settings →</a></span>
+          <span>${msg}</span>
           <button class="banner-dismiss" onclick="this.closest('.banner').remove()" aria-label="Dismiss">&#x2715;</button>
         </div>`;
     }
@@ -684,7 +689,7 @@
         const shown = showCompleted ? tasksData : tasksData.filter(t => !t.completed);
         renderTasks(shown);
       } catch (err) {
-        if (/credentials|invalid|unauthorized/i.test(err.message)) {
+        if (provider === 'apple' || /credentials|invalid|unauthorized/i.test(err.message)) {
           showCredentialError();
         } else {
           showBanner(err.message, 'error');

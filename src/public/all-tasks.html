@@ -258,7 +258,9 @@
       const container = document.getElementById('provider-errors');
       container.innerHTML = errors.map(e => {
         const label = escHtml(PROVIDER_LABELS[e.provider] || e.provider);
-        const msg   = e.error === 'Bridge not connected'
+        // Apple Reminders has no OAuth credentials to expire — every failure for
+        // this provider is the Mac bridge app being disconnected, not a stale token.
+        const msg   = e.provider === 'apple'
           ? `<strong>${label}</strong> is not connected — ensure the bridge app is running on your Mac. <a href="/settings.html">Check in Settings →</a>`
           : `<strong>${label}</strong> could not be loaded — credentials may have expired. <a href="/settings.html">Reconnect in Settings →</a>`;
         return `
